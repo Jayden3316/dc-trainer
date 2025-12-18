@@ -122,6 +122,24 @@ def train(
     
     best_val_acc = 0.0
 
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print("\n" + "="*50)
+    print("TRAINING CONFIGURATION")
+    print("="*50)
+    print(f"Device: {device}")
+    print(f"Batch Size: {batch_size}")
+    print(f"Epochs: {epochs}")
+    print(f"Learning Rate: {lr}")
+    print(f"Train Dataset Size: {len(train_dataset)}")
+    print(f"Val Dataset Size: {len(val_dataset)}")
+    print(f"Trainable Parameters: {trainable_params:,}")
+    print("-" * 50)
+    print("MODEL ARCHITECTURE")
+    print("-" * 50)
+    print(model)
+    print("="*50 + "\n")
+
     print(f"Starting training on {device} with {len(train_dataset)} training samples.")
 
     for epoch in range(epochs):
