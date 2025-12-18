@@ -59,7 +59,10 @@ class CaptchaDataset(Dataset):
         text = item['word_rendered']
         
         if not image_path.exists():
-            raise FileNotFoundError(f"Image not found at {image_path} (Fallback failed)")
+             if idx == 0:
+                 raise FileNotFoundError(f"Image not found at {image_path} (Fallback failed)")
+             print(f"Warning: Image not found at {image_path}, using fallback.")
+             return self.__getitem__(0)
 
         processed = self.processor(str(image_path), text)
         if processed is None:
