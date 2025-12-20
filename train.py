@@ -11,10 +11,12 @@ from torch.utils.data import Dataset, DataLoader
 import wandb
 from tqdm import tqdm
 
-from config import CaptchaConfig
-from modelling import CaptchaModel, CTCCaptchaModel
-from utils import calculate_metrics
-from processor import CaptchaProcessor
+from captcha_ocr.config.config import ExperimentConfig
+from captcha_ocr.architecture.model import CaptchaModel
+from captcha_ocr.utils import calculate_metrics
+from captcha_ocr.processor import CaptchaProcessor
+from captcha_ocr.losses import get_loss_function
+from captcha_ocr.decoding import decode_simple
 
 class CaptchaDataset(Dataset):
     def __init__(self, metadata_path: str, processor: CaptchaProcessor, base_dir: str):
@@ -94,41 +96,35 @@ def collate_fn(batch):
         "target_lengths": target_lengths
     }
 
-# --- Training Loop ---
 def train(
+    config: "ExperimentConfig",
     train_dataset: Optional[Dataset] = None,
     val_dataset: Optional[Dataset] = None,
-    metadata_path: str = "validation_set/metadata.json",
-    image_base_dir: str = ".", 
-    batch_size: int = 32,
-    epochs: int = 10,
-    lr: float = 1e-4,
-    checkpoint_dir: str = "checkpoints",
-    wandb_project: str = "captcha-ocr",
-    model_type: str = 'asymmetric-convnext-transformer' # toggle to switch between architectures
 ):
     
-    config = CaptchaConfig(model_type=model_type)
-    processor = CaptchaProcessor(config=config, metadata_path=metadata_path)
-
-    config.d_vocab = processor.vocab_size -1 # the processor adds an additional token
-
     # Initialize WandB
-    wandb.init(project=wandb_project, config={
-        "batch_size": batch_size,
-        "epochs": epochs,
-        "lr": lr,
-        'model_type': model_type,
-        'd_model': config.d_model
-    })
+    wandb.init(
+        project=config.training_config.wandb_project, 
+        name=config.training_config.wandb_run_name,
+        config=config.to_dict()
+    )
     
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    os.makedirs(config.training_config.checkpoint_dir, exist_ok=True)
+    device = torch.device(config.training_config.device if torch.cuda.is_available() else "cpu")
     
     # Data Setup
+    metadata_path = config.metadata_path
+    image_base_dir = config.image_base_dir
+    
     if train_dataset is None or val_dataset is None:
+        # Processor initialized with full ExperimentConfig
+        processor = CaptchaProcessor(config=config, metadata_path=metadata_path)
+        
+        # Ensure vocab size matches config if we used defaults
+        # config.model_config.d_vocab = processor.vocab_size - 1
+        
         full_dataset = CaptchaDataset(metadata_path, processor, image_base_dir)
-        train_size = int(0.9 * len(full_dataset))
+        train_size = int((1.0 - config.training_config.val_split) * len(full_dataset))
         val_size = len(full_dataset) - train_size
         train_ds, val_ds = torch.utils.data.random_split(full_dataset, [train_size, val_size])
         
@@ -137,62 +133,66 @@ def train(
         if val_dataset is None:
             val_dataset = val_ds
     else:
+        # Extract processor from dataset if possible
         if hasattr(train_dataset, 'dataset'): # Handle Subset
-            processor = train_dataset.dataset.processor
+             # Check if dataset has processor
+            if hasattr(train_dataset.dataset, 'processor'):
+                processor = train_dataset.dataset.processor
+            else:
+                 processor = CaptchaProcessor(config=config, metadata_path=metadata_path)
         elif hasattr(train_dataset, 'processor'):
             processor = train_dataset.processor
         else:
-            processor = CaptchaProcessor(metadata_path=metadata_path)
+            processor = CaptchaProcessor(config=config, metadata_path=metadata_path)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4)
+    batch_size = config.training_config.batch_size
+    num_workers = config.training_config.num_workers
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=config.training_config.shuffle_train, collate_fn=collate_fn, num_workers=num_workers)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=num_workers)
 
-    print(f"Initializing {model_type}...")
-    if model_type == 'asymmetric-convnext-transformer':
-        model = CTCCaptchaModel(config)
-    else:
-        model = CaptchaModel(config) # Legacy
+    print(f"Initializing CaptchaModel with config: {config.model_config.encoder_type} + {config.model_config.sequence_model_type}...")
+    
+    # Use the new clean architecture
+    # We pass the ModelConfig directly
+    model = CaptchaModel(config.model_config)
         
     model.to(device)
     
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
-    if model_type == 'asymmetric-convnext-transformer':
-        # CTC Loss: Expects [Input Seq Len, Batch, Classes]
-        # blank=0 is our standard from processor
-        loss_fn = nn.CTCLoss(blank=0, zero_infinity=True)
+    optimizer_cls = getattr(optim, config.training_config.optimizer_type.upper(), optim.AdamW)
+    if config.training_config.optimizer_type.lower() == 'adamw':
+         optimizer = optim.AdamW(model.parameters(), lr=config.training_config.learning_rate, weight_decay=config.training_config.weight_decay)
     else:
-        # Cross Entropy (Legacy)
-        loss_fn = nn.CrossEntropyLoss(ignore_index=0)
+         optimizer = optimizer_cls(model.parameters(), lr=config.training_config.learning_rate)
+
+    loss_fn = get_loss_function(config.model_config)
     
-    best_val_acc = 0.0
+    best_val_metric = 0.0
+    monitor_metric = config.training_config.monitor_metric
 
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     print("\n" + "="*50)
     print("TRAINING CONFIGURATION")
     print("="*50)
-    print(f"Device: {device}")
-    print(f"Batch Size: {batch_size}")
-    print(f"Epochs: {epochs}")
-    print(f"Learning Rate: {lr}")
-    print(f"Train Dataset Size: {len(train_dataset)}")
-    print(f"Val Dataset Size: {len(val_dataset)}")
-    print(f"Trainable Parameters: {trainable_params:,}")
+    print(config.describe())
     print("-" * 50)
-    print("MODEL ARCHITECTURE")
-    print("-" * 50)
-    print(model)
+    print(f"Train samples: {len(train_dataset)}")
+    print(f"Val samples: {len(val_dataset)}")
+    print(f"Trainable Params: {trainable_params:,}")
     print("="*50 + "\n")
 
-    print(f"Starting training on {device} with {len(train_dataset)} training samples.")
+    epochs = config.training_config.epochs
+    grad_clip_norm = config.training_config.grad_clip_norm
+    log_every = config.training_config.log_every_n_steps
+    save_dir = config.training_config.checkpoint_dir
 
     for epoch in range(epochs):
         model.train()
         train_loss = 0.0
         
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
-        for batch in progress_bar:
+        for step, batch in enumerate(progress_bar):
             if batch is None: continue
             
             images = batch["pixel_values"].to(device)
@@ -200,101 +200,101 @@ def train(
             target_lengths = batch['target_lengths'].to(device)
             
             logits = model(images) 
-            
-            if model_type == 'asymmetric-convnext-transformer':
-                logits_time_major = logits.permute(1, 0, 2) # 1. Permute to [Seq_Len, Batch, Vocab] for PyTorch CTCLoss
-                log_probs = logits_time_major.log_softmax(dim=2)
-                T, N, _ = log_probs.shape # CTC is robust to padded images TODO: check if this is true. logits shape: [Seq, Batch, Dim]
-                input_lengths = torch.full(size=(N,), fill_value=T, dtype=torch.long, device=device)
-                
-                loss = loss_fn(log_probs, targets, input_lengths, target_lengths)
-            else:
-                loss = loss_fn(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+
+            loss = loss_fn(logits, targets, target_lengths)
             
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
 
             optimizer.step()
             
             train_loss += loss.item()
             progress_bar.set_postfix({"loss": loss.item()})
-            wandb.log({"train_loss": loss.item()})
+            
+            if step % log_every == 0:
+                wandb.log({"train_loss": loss.item(), "epoch": epoch, "step": step})
             
         avg_train_loss = train_loss / len(train_loader)
         print(f"Epoch {epoch+1} Train Loss: {avg_train_loss:.4f}")
         
         # --- Validation ---
-        model.eval()
-        val_loss = 0.0
-        total_samples = 0
-        
-        # Metrics Accumulators
-        total_edit_distance = 0.0
-        total_char_accuracy = 0.0
-        exact_matches = 0
-        
-        with torch.no_grad():
-            for batch in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]"):
-                if batch is None: continue
-                
-                images = batch["pixel_values"].to(device)
-                targets = batch["input_ids"].to(device)
-                target_lengths = batch["target_lengths"].to(device)
-                
-                logits = model(images)
-                
-                if model_type == 'asymmetric-convnext-transformer':
-                    log_probs = logits.permute(1, 0, 2).log_softmax(dim=2)
-                    T, N, _ = log_probs.shape
-                    input_lengths = torch.full((N,), T, dtype=torch.long, device=device)
-                    loss = loss_fn(log_probs, targets, input_lengths, target_lengths)
-                else:
-                    loss = loss_fn(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
-                    
-                val_loss += loss.item()
-                
-                preds = logits.argmax(dim=-1) # [B, Seq_len]
-                
-                # Calculate metrics using utils.py
-                for i in range(len(targets)):
-
-                    pred_str = processor.decode(preds[i])
-
-                    target_ids = targets[i][:target_lengths[i]].tolist()
-                    target_str = processor._decode_simple(target_ids)
-                    
-                    metrics = calculate_metrics(target_str, pred_str)
-                    
-                    total_edit_distance += metrics['edit_distance']
-                    total_char_accuracy += metrics['character_accuracy']
-                    if metrics['exact_match']:
-                        exact_matches += 1
-                        
-                total_samples += images.size(0)
-
-        avg_val_loss = val_loss / len(val_loader)
-        avg_char_acc = total_char_accuracy / total_samples if total_samples > 0 else 0.0
-        avg_edit_dist = total_edit_distance / total_samples if total_samples > 0 else 0.0
-        exact_match_acc = exact_matches / total_samples if total_samples > 0 else 0.0
-        
-        print(f"Val Loss: {avg_val_loss:.4f} | Char Acc: {avg_char_acc:.4f} | Edit Dist: {avg_edit_dist:.4f} | Exact Match: {exact_match_acc:.4f}")
-        
-        wandb.log({
-            "val_loss": avg_val_loss,
-            "val_char_acc": avg_char_acc,
-            "val_edit_distance": avg_edit_dist,
-            "val_exact_match": exact_match_acc,
-            "epoch": epoch + 1
-        })
-        
-        # Checkpointing
-        if exact_match_acc >= best_val_acc:
-            best_val_acc = exact_match_acc
-            torch.save(model.state_dict(), os.path.join(checkpoint_dir, f"best_{model_type}_model.pth"))
-            print(f"New best model saved with Exact Match: {best_val_acc:.4f}")
+        if (epoch + 1) % config.training_config.val_check_interval == 0:
+            model.eval()
+            val_loss = 0.0
+            total_samples = 0
             
-        torch.save(model.state_dict(), os.path.join(checkpoint_dir, f"checkpoint_{model_type}_epoch_{epoch+1}.pth"))
+            # Metrics Accumulators
+            total_edit_distance = 0.0
+            total_char_accuracy = 0.0
+            exact_matches = 0
+            
+            with torch.no_grad():
+                for batch in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]"):
+                    if batch is None: continue
+                    
+                    images = batch["pixel_values"].to(device)
+                    targets = batch["input_ids"].to(device)
+                    target_lengths = batch["target_lengths"].to(device)
+                    
+                    logits = model(images)
+    
+                    loss = loss_fn(logits, targets, target_lengths)
+                        
+                    val_loss += loss.item()
+                    
+                    # For CTC, we need to decode. 
+                    # Note: UniversalCaptchaModel returns [B, S, D] now.
+                    preds = logits.argmax(dim=-1) # [B, Seq_len]
+                    
+                    # Calculate metrics using utils.py
+                    for i in range(len(targets)):
+    
+                        pred_str = processor.decode(preds[i])
+    
+                        target_ids = targets[i][:target_lengths[i]].tolist()
+                        # Use simple decoding for ground truth (no CTC logic needed)
+                        target_str = decode_simple(target_ids, processor.idx_to_char)
+                        
+                        metrics = calculate_metrics(target_str, pred_str)
+                        
+                        total_edit_distance += metrics['edit_distance']
+                        total_char_accuracy += metrics['character_accuracy']
+                        if metrics['exact_match']:
+                            exact_matches += 1
+                            
+                    total_samples += images.size(0)
+    
+            avg_val_loss = val_loss / len(val_loader)
+            avg_char_acc = total_char_accuracy / total_samples if total_samples > 0 else 0.0
+            avg_edit_dist = total_edit_distance / total_samples if total_samples > 0 else 0.0
+            exact_match_acc = exact_matches / total_samples if total_samples > 0 else 0.0
+            
+            print(f"Val Loss: {avg_val_loss:.4f} | Char Acc: {avg_char_acc:.4f} | Edit Dist: {avg_edit_dist:.4f} | Exact Match: {exact_match_acc:.4f}")
+            
+            wandb.log({
+                "val_loss": avg_val_loss,
+                "val_char_acc": avg_char_acc,
+                "val_edit_distance": avg_edit_dist,
+                "val_exact_match": exact_match_acc,
+                "epoch": epoch + 1
+            })
+            
+            # Checkpointing
+            is_best = False
+            current_metric = exact_match_acc # logic for other metrics can be added
+            if current_metric >= best_val_metric:
+                best_val_metric = current_metric
+                is_best = True
+                
+            fname = f"{config.experiment_name}_epoch_{epoch+1}.pth"
+            torch.save(model.state_dict(), os.path.join(save_dir, fname))
+            
+            if is_best:
+                torch.save(model.state_dict(), os.path.join(save_dir, f"best_{config.experiment_name}.pth"))
+                print(f"New best model saved with {monitor_metric}: {best_val_metric:.4f}")
 
 if __name__ == "__main__":
     train(

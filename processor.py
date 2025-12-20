@@ -1,14 +1,16 @@
+
 import json
 import torch
 from torchvision import transforms
 from PIL import Image
 from typing import List, Union, Optional
-from config import CaptchaConfig
+from captcha_ocr.config.config import ExperimentConfig
+from captcha_ocr.decoding import decode_ctc, decode_simple
 
 class CaptchaProcessor:
     """
     Unified Processor for Captcha Models.
-    Behaves differently based on config.model_type:
+    Behaves differently based on config.
     
     1. 'cnn-transformer-detr': 
        - Height 70
@@ -20,18 +22,17 @@ class CaptchaProcessor:
        - Width formula: Multiple of 4 (Stem Stride)
        - CTC decoding (Collapse repeats, remove blanks)
     """
-    def __init__(self, config: CaptchaConfig, metadata_path: str = None, vocab: List[str] = None):
+    def __init__(self, config: ExperimentConfig, metadata_path: str = None, vocab: List[str] = None):
         self.config = config
-        self.model_type = config.model_type
-        self.max_seq_len = config.n_ctx
+        # Use simple fallback if d_vocab/n_ctx not deeply configured
+        self.max_seq_len = config.model_config.sequence_model_config.n_ctx
+
+        self.target_height = config.dataset_config.height
+        self.width_divisor = config.dataset_config.width_divisor
+        self.width_bias = config.dataset_config.width_bias
         
-        # --- Architecture Configuration ---
-        if self.model_type == 'cnn-transformer-detr':
-            self.target_height = 70
-        elif self.model_type == 'asymmetric-convnext-transformer':
-            self.target_height = 80
-        else:
-            raise ValueError(f"Unknown model_type: {self.model_type}")
+        # Determine decoding strategy
+        self.decoding_type = 'ctc' if config.model_config.head_type == 'ctc' else 'simple'
             
         # --- Vocab Setup ---
         if vocab is not None:
@@ -67,42 +68,35 @@ class CaptchaProcessor:
             return list("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     # --- Resizing Logic ---
-
-    def _resize_detr_style(self, image: Image.Image) -> Image.Image:
-        """Legacy resize for 'cnn-transformer-detr' (Height 70, Unfold compatible)."""
+    def _resize_image(self, image: Image.Image) -> Image.Image:
+        """Unified resizing logic based on config."""
         w, h = image.size
         scale = self.target_height / h
         new_w = int(w * scale)
         
-        # Formula: width must be 28*k + 14
-        k = round((new_w - 14) / 28)
-        k = max(1, k)
-        target_w = 28 * k + 14
-        
-        return image.resize((target_w, self.target_height), resample=Image.Resampling.LANCZOS)
-
-    def _resize_convnext_style(self, image: Image.Image) -> Image.Image:
-        """New resize for 'asymmetric-convnext-transformer' (Height 80, Stride 4)."""
-        w, h = image.size
-        scale = self.target_height / h
-        new_w = int(w * scale)
-        
-        # Formula: width must be divisible by 4
-        target_w = round(new_w / 4) * 4
-        target_w = max(4, target_w)
-        
+        # Align width to divisor
+        if self.width_divisor > 1:
+            # For legacy DETR (div 28), the formula was specific (28k + 14).
+            # For general use, rounding to nearest divisor is usually sufficient.
+            # If strict legacy compatibility is needed, we can check specific flags.
+            # Formula: width = divisor * k + bias
+            # k = round((width - bias) / divisor)
+            k = round((new_w - self.width_bias) / self.width_divisor)
+            target_w = k * self.width_divisor + self.width_bias
+            
+            # Ensure at least k=1 if that makes sense, or just ensure > 0
+            # Ideally target_w should be at least divisor + bias
+            min_w = self.width_divisor + self.width_bias
+            target_w = max(min_w, target_w)
+        else:
+            target_w = new_w
+            
         return image.resize((target_w, self.target_height), resample=Image.Resampling.LANCZOS)
 
     def process_image(self, image: Image.Image) -> torch.Tensor:
-        # Dispatch based on flag
-        if self.model_type == 'cnn-transformer-detr':
-            image = self._resize_detr_style(image)
-        else:
-            image = self._resize_convnext_style(image)
-        
+        image = self._resize_image(image)
         if image.mode != 'RGB':
             image = image.convert('RGB')
-            
         return self.to_tensor(image)
 
     # --- Text Encoding ---
@@ -117,38 +111,14 @@ class CaptchaProcessor:
 
     # --- Decoding Logic ---
 
-    def _decode_ctc(self, token_ids: List[int]) -> str:
-        """Greedy CTC Decoding: Collapse repeats, remove blanks (0)."""
-        text = []
-        prev_token = -1
-        for token in token_ids:
-            if token == 0: # Blank
-                prev_token = token
-                continue
-            if token == prev_token: # Repeat
-                continue
-            text.append(self.idx_to_char.get(token, ""))
-            prev_token = token
-        return "".join(text)
-
-    def _decode_simple(self, token_ids: List[int]) -> str:
-        """Standard Decoding: Just map every token to char (ignore 0/Pad)."""
-        text = []
-        for token in token_ids:
-            if token == 0: # Pad
-                continue
-            text.append(self.idx_to_char.get(token, ""))
-        return "".join(text)
-
     def decode(self, token_ids: Union[torch.Tensor, List[int]]) -> str:
-        """Public decode method that dispatches based on model type."""
         if isinstance(token_ids, torch.Tensor):
             token_ids = token_ids.tolist()
             
-        if self.model_type == 'asymmetric-convnext-transformer':
-            return self._decode_ctc(token_ids)
+        if self.decoding_type == 'ctc':
+            return decode_ctc(token_ids, self.idx_to_char, blank_idx=0)
         else:
-            return self._decode_simple(token_ids)
+            return decode_simple(token_ids, self.idx_to_char)
 
     def __call__(self, image_path: str, text: str = None):
         try:
