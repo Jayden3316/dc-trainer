@@ -1,0 +1,37 @@
+# Default "Clean" Dataset Configuration
+# No noise, no distortions, black text on white background.
+
+# Dimensions
+width: 200
+height: 80
+width_divisor: 4
+width_bias: 0
+
+# Noise (Disable all)
+noise_bg_density: 0
+add_noise_dots: false
+add_noise_curve: false
+
+# Colors
+fg_color: [0, 0, 0]       # Black
+bg_color: [255, 255, 255, 1] # White
+
+# Fonts
+fonts: ["font_library/Roboto/static/Roboto-Regular.ttf"]
+max_fonts_per_family: 1
+font_sizes: [42]
+
+# Content Source
+word_path: "smoke_words.tsv"
+random_capitalize: False
+
+# Distortions (Disable all)
+character_offset_dx: [0, 0]
+character_offset_dy: [0, 0]
+character_rotate: [0, 0]
+character_warp_dx: [0.0, 0.0]
+character_warp_dy: [0.0, 0.0]
+word_space_probability: 0.0
+word_offset_dx: 0.0
+spacing_jitter: 0
+extra_spacing: 0
