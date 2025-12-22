@@ -184,8 +184,14 @@ def train(
     
     best_val_metric = 0.0
     monitor_metric = config.training_config.monitor_metric
-
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print("Model Parameter Breakdown:")
+    for section in ["encoder", "projector", "sequence_model", "head"]:
+        module = getattr(model, section, None)
+        if module is not None:
+            section_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
+            print(f"  - {section}: {section_params:,}")
 
     print("\n" + "="*50)
     print("TRAINING CONFIGURATION")
