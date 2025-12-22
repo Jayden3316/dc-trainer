@@ -1,4 +1,0 @@
-dataset_config:
-  width: 200
-  height: 80
-  word_path: "smoke_words.tsv"
