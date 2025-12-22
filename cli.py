@@ -15,96 +15,8 @@ from src.train import train
 
 from generate_captchas import get_ttf_files, get_words, CaptchaGenerator, random_capitalize
 
-def hydrate_config(data: dict) -> ExperimentConfig:
-    """Manually hydrate dictionary into ExperimentConfig hierarchy."""
-    
-    # 1. Dataset Config
-    ds_data = data.get('dataset_config', {})
-    dataset_config = DatasetConfig(**ds_data)
-    
-    # 2. Training Config
-    tr_data = data.get('training_config', {})
-    training_config = TrainingConfig(**tr_data)
-    
-    # 3. Model Config
-    mc_data = data.get('model_config', {})
-    
-    # Helper to selecting config class based on type name
-    def get_config_obj(type_name, config_dict, mapping, default_cls):
-        if not type_name or not config_dict:
-            return default_cls()
-        cls = mapping.get(type_name, default_cls)
-        # Filter keys that valid for the dataclass
-        valid_keys = cls.__dataclass_fields__.keys()
-        filtered_args = {k: v for k, v in config_dict.items() if k in valid_keys}
-        return cls(**filtered_args)
+from src.config.loader import hydrate_config
 
-    # Encoders
-    encoder_type = mc_data.get('encoder_type')
-    encoder_cls_map = {
-        'asymmetric_convnext': AsymmetricConvNextEncoderConfig,
-        'legacy_cnn': LegacyCNNEncoderConfig
-    }
-    encoder_config = get_config_obj(encoder_type, mc_data.get('encoder_config'), encoder_cls_map, AsymmetricConvNextEncoderConfig)
-
-    # Projectors
-    proj_type = mc_data.get('projector_type')
-    proj_cls_map = {
-        'linear': LinearProjectorConfig,
-        'mlp': MLPProjectorConfig,
-        'identity': IdentityProjectorConfig,
-        'bottleneck': BottleneckProjectorConfig,
-        'residual': ResidualProjectorConfig
-    }
-    projector_config = get_config_obj(proj_type, mc_data.get('projector_config'), proj_cls_map, LinearProjectorConfig)
-    
-    # Sequence Models
-    seq_type = mc_data.get('sequence_model_type')
-    seq_cls_map = {
-        'transformer_encoder': TransformerEncoderConfig,
-        'transformer_decoder': TransformerDecoderConfig, 
-        'transformer_decoder_detr': TransformerDecoderConfig, # Alias
-        'rnn': RNNConfig,
-        'bilstm': BiLSTMConfig
-    }
-    # Special handling for Transformer configs which might have extra HookedTransformer args
-    # For now, let's use the helper but note that passing extra args to HookedTransformerConfig might be tricky if not filtered
-    # Our helper filters, so keys missing from our subclass definition but present in parent might be lost if we don't be careful.
-    # Actually TransformerConfig inherits HookedTransformerConfig. Dataclass fields should include parent fields.
-    sequence_model_config = get_config_obj(seq_type, mc_data.get('sequence_model_config'), seq_cls_map, TransformerEncoderConfig)
-
-    # Heads
-    head_type = mc_data.get('head_type')
-    head_cls_map = {
-        'linear': LinearHeadConfig, # and 'ctc' shares this
-        'ctc': LinearHeadConfig,
-        'mlp': MLPHeadConfig,
-        'classification': ClassificationHeadConfig
-    }
-    head_config = get_config_obj(head_type, mc_data.get('head_config'), head_cls_map, LinearHeadConfig)
-    
-    model_config = ModelConfig(
-        encoder_type=encoder_type,
-        encoder_config=encoder_config,
-        projector_type=proj_type,
-        projector_config=projector_config,
-        sequence_model_type=seq_type,
-        sequence_model_config=sequence_model_config,
-        head_type=head_type,
-        head_config=head_config,
-        d_model=mc_data.get('d_model', 256),
-        d_vocab=mc_data.get('d_vocab', 62),
-        loss_type=mc_data.get('loss_type', 'ctc')
-    )
-    
-    return ExperimentConfig(
-        experiment_name=data.get('experiment_name', 'custom_run'),
-        dataset_config=dataset_config,
-        training_config=training_config,
-        model_config=model_config,
-        metadata_path=data.get('metadata_path', 'data/metadata.json'),
-        image_base_dir=data.get('image_base_dir', 'data/images')
-    )
 
 def load_config(config_path: str) -> ExperimentConfig:
     """Load config from YAML or JSON file."""
@@ -130,7 +42,7 @@ def main():
     gen_parser.add_argument("--word-file", type=str, default=None, help="Path to words file (TSV) (overrides config)")
     gen_parser.add_argument("--font-root", type=str, default="fonts", help="Root of font directory")
     gen_parser.add_argument("--out-dir", type=str, default="dataset", help="Output directory")
-    gen_parser.add_argument("--count", type=int, default=None, help="Limit number of words (optional)")
+    gen_parser.add_argument("--dataset-count", type=int, default=None, help="Target number of captchas to generate")
     
     # --- TRAIN COMMAND ---
     train_parser = subparsers.add_parser("train", help="Train model")
@@ -143,6 +55,17 @@ def main():
     train_parser.add_argument("--epochs", type=int, default=None, help="Override epochs")
     train_parser.add_argument("--batch-size", type=int, default=None, help="Override batch size")
     train_parser.add_argument("--wandb-project", type=str, default=None, help="WandB Project Name")
+
+    # --- EVALUATE COMMAND ---
+    eval_parser = subparsers.add_parser("evaluate", help="Evaluate model")
+    eval_parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint (.pth)")
+    eval_parser.add_argument("--metadata-path", type=str, required=True, help="Path to evaluation metadata")
+    
+    # --- INFERENCE COMMAND ---
+    inf_parser = subparsers.add_parser("inference", help="Run inference")
+    inf_parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint (.pth)")
+    inf_parser.add_argument("--image-paths", type=str, nargs='+', help="List of image paths")
+    inf_parser.add_argument("--image-dir", type=str, help="Directory of images")
 
     args = parser.parse_args()
     
@@ -220,8 +143,29 @@ def main():
              sys.exit(1)
         
         words = get_words(dataset_config.word_path)
-        if args.count:
-            words = words[:args.count]
+        if args.dataset_count:
+            import random
+            
+            # Validation for expanding dataset beyond vocabulary size
+            if args.dataset_count > len(words):
+                # Check for variation factors (multiple fonts or random capitalization)
+                has_variation = (len(dataset_config.fonts) > 1) or dataset_config.random_capitalize
+                
+                if not has_variation:
+                    print(f"Error: Requested dataset_count ({args.dataset_count}) > vocabulary size ({len(words)})")
+                    print("but no variation enabled (single font and no random capitalization).")
+                    print("Enable random_capitalize or provide multiple fonts.")
+                    sys.exit(1)
+                
+                # Resample with replacement to reach target count
+                print(f"Expanding vocabulary from {len(words)} to {args.dataset_count} using random sampling...")
+                words = random.choices(words, k=args.dataset_count)
+            else:
+                # Subsample without replacement (or just slice, but sample is better for diversity if list is sorted)
+                # However, original behavior was slice. Let's strictly follow request: "dataset count"
+                # If we want a specific size subset, random sample is usually preferred to avoid bias if list is sorted.
+                words = random.sample(words, k=args.dataset_count) # Random subset
+
             
         print(f"Generating {len(words)} samples to {args.out_dir} from {dataset_config.word_path}...")
         
@@ -255,6 +199,45 @@ def main():
             config.training_config.batch_size = args.batch_size
             
         train(config)
+        
+    elif args.command == "evaluate":
+        print("Prepare evaluation...")
+        from src.evaluate import evaluate
+        
+        evaluate(
+            checkpoint_path=args.checkpoint,
+            metadata_path=args.metadata_path
+        )
+        
+    elif args.command == "inference":
+        print("Prepare inference...")
+        from src.inference import run_inference
+        
+        # Resolve image paths
+        image_paths = []
+        if args.image_paths:
+            image_paths.extend(args.image_paths)
+            
+        if args.image_dir:
+            import os
+            d = Path(args.image_dir)
+            if d.exists() and d.is_dir():
+                # naive glob
+                exts = ['*.png', '*.jpg', '*.jpeg', '*.tiff', '*.bmp']
+                for ext in exts:
+                    image_paths.extend([str(p) for p in d.rglob(ext)])
+            else:
+                print(f"Error: Directory not found {args.image_dir}")
+                sys.exit(1)
+                
+        if not image_paths:
+            print("Error: No images provided via --image-paths or --image-dir")
+            sys.exit(1)
+            
+        run_inference(
+            checkpoint_path=args.checkpoint,
+            image_paths=image_paths
+        )
 
 if __name__ == "__main__":
     main()

@@ -20,10 +20,10 @@ model_config:
   projector_type: "linear"
   
   # Optional: Use transformer to mix features before pooling
-  sequence_model_type: "transformer_encoder"
+  sequence_model_type: "rnn"
   sequence_model_config:
-    d_model: 256
-    d_vocab: 10 # Must match model d_vocab
+    d_model: 128
+    d_vocab: 100 # Must match model d_vocab
     n_layers: 2
     
   head_type: "classification"
@@ -33,12 +33,12 @@ model_config:
     d_model: 256
   
   d_model: 256
-  d_vocab: 10 # Same as num_classes roughly
+  d_vocab: 100 # Same as num_classes roughly
   loss_type: "cross_entropy"
 
 training_config:
   batch_size: 32
-  epochs: 50
+  epochs: 10
   learning_rate: 0.0001
   optimizer_type: "adamw"
   checkpoint_dir: "checkpoints"

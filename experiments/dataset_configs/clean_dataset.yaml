@@ -2,7 +2,7 @@
 # No noise, no distortions, black text on white background.
 
 # Dimensions
-width: 200
+width: 160
 height: 80
 width_divisor: 4
 width_bias: 0
@@ -17,13 +17,14 @@ fg_color: [0, 0, 0]       # Black
 bg_color: [255, 255, 255, 1] # White
 
 # Fonts
-fonts: ["font_library/Roboto/static/Roboto-Regular.ttf"]
+fonts_root: "font_library"
+fonts: []
 max_fonts_per_family: 1
 font_sizes: [42]
 
 # Content Source
-word_path: "smoke_words.tsv"
-random_capitalize: False
+word_path: "experiments/diverse_words.tsv"
+random_capitalize: True
 
 # Distortions (Disable all)
 character_offset_dx: [0, 0]

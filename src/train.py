@@ -305,10 +305,22 @@ def train(
                 is_best = True
                 
             fname = f"{config.experiment_name}_epoch_{epoch+1}.pth"
-            torch.save(model.state_dict(), os.path.join(save_dir, fname))
+            checkpoint_data = {
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'config': config.to_dict(),
+                'metrics': {
+                    'val_loss': avg_val_loss,
+                    'val_char_acc': avg_char_acc,
+                    'val_edit_distance': avg_edit_dist,
+                    'val_exact_match': exact_match_acc
+                }
+            }
+            torch.save(checkpoint_data, os.path.join(save_dir, fname))
             
             if is_best:
-                torch.save(model.state_dict(), os.path.join(save_dir, f"best_{config.experiment_name}.pth"))
+                torch.save(checkpoint_data, os.path.join(save_dir, f"best_{config.experiment_name}.pth"))
                 print(f"New best model saved with {monitor_metric}: {best_val_metric:.4f}")
 
 if __name__ == "__main__":

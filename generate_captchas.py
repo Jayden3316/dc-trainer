@@ -365,7 +365,9 @@ class CaptchaGenerator:
                     bg_color=bg,
                     fg_color=fg,
                 )
-                filename = f"{render_word}.{self.config.image_ext}"
+                # Use random suffix to prevent overwrite for repeated words
+                import uuid
+                filename = f"{render_word}_{uuid.uuid4().hex[:8]}.{self.config.image_ext}"
                 fp = self.out_dir / filename
                 img.save(fp)
 
