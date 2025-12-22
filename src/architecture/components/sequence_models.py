@@ -168,12 +168,15 @@ class RNNSequenceModel(BaseSequenceModel):
         super().__init__()
         self.cfg = cfg
         
+        # RNNConfig.hidden_size corresponds to d_model in our pipeline sync logic
+        d_model = cfg.hidden_size
+        
         self.rnn = nn.RNN(
-            input_size=cfg.d_model,
-            hidden_size=cfg.d_model,
-            num_layers=cfg.n_layers,
+            input_size=d_model,
+            hidden_size=d_model,
+            num_layers=cfg.num_layers,
             batch_first=True,
-            dropout=0.1 if cfg.n_layers > 1 else 0.0,
+            dropout=cfg.dropout if cfg.num_layers > 1 else 0.0,
             bidirectional=False # Standard RNN
         )
         self.act = nn.ReLU() # Often helpful after RNN
@@ -202,16 +205,16 @@ class BiLSTMSequenceModel(BaseSequenceModel):
         super().__init__()
         self.cfg = cfg
         
-        if cfg.d_model % 2 != 0:
-            raise ValueError(f"d_model ({cfg.d_model}) must be even for BiLSTM (hidden_size = d_model // 2)")
+        # BiLSTMConfig.hidden_size is d_model // 2
+        d_model = cfg.hidden_size * 2
             
         self.lstm = nn.LSTM(
-            input_size=cfg.d_model,
-            hidden_size=cfg.d_model // 2, # Halve hidden size so bidirectional concat matches d_model
-            num_layers=cfg.n_layers,
+            input_size=d_model,
+            hidden_size=cfg.hidden_size, 
+            num_layers=cfg.num_layers,
             batch_first=True,
             bidirectional=True,
-            dropout=0.1 if cfg.n_layers > 1 else 0.0
+            dropout=cfg.dropout if cfg.num_layers > 1 else 0.0
         )
 
     @property

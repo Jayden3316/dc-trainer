@@ -24,7 +24,7 @@ font_sizes: [42]
 
 # Content Source
 word_path: "experiments/diverse_words.tsv"
-random_capitalize: True
+random_capitalize: False
 
 # Distortions (Disable all)
 character_offset_dx: [0, 0]

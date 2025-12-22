@@ -62,10 +62,10 @@ class BaseProcessor(ABC):
                 data = json.load(f)
             
             if is_classification:
-                # For classification, vocab is the set of unique words/labels
+                # For classification, vocab is the set of input words
                 words = set()
                 for entry in data:
-                    words.add(entry.get('word_rendered', ''))
+                    words.add(entry.get('word_input', ''))
                 return sorted(list(words))
             else:
                 # For generation, vocab is the set of unique characters

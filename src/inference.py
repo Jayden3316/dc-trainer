@@ -17,7 +17,7 @@ def run_inference(
     
     # 1. Load Checkpoint
     print(f"Loading checkpoint from {checkpoint_path}...")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     
     if 'config' not in checkpoint:
         raise ValueError(f"Checkpoint at {checkpoint_path} does not contain configuration.")

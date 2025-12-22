@@ -562,6 +562,11 @@ class ModelConfig:
             'd_model': self.d_model,
             'loss_type': self.loss_type.value if isinstance(self.loss_type, LossType) else self.loss_type,
             'task_type': self.task_type.value if isinstance(self.task_type, TaskType) else self.task_type,
+            # Sub-configs (as dicts)
+            'encoder_config': vars(self.encoder_config) if self.encoder_config else None,
+            'projector_config': vars(self.projector_config) if self.projector_config else None,
+            'sequence_model_config': self.sequence_model_config.to_dict() if hasattr(self.sequence_model_config, 'to_dict') else (vars(self.sequence_model_config) if self.sequence_model_config else None),
+            'head_config': vars(self.head_config) if self.head_config else None,
         }
 
 

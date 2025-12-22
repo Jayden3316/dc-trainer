@@ -94,10 +94,13 @@ def evaluate(
             
             for i in range(len(targets)):
                 pred_str = processor.decode(preds[i])
-                
-                # Ground Truth
-                target_ids = targets[i][:target_lengths[i]].tolist()
-                target_str = decode_simple(target_ids, processor.idx_to_char)
+                if targets.dim() == 2:
+                    # Sequence Task (Generation/OCR)
+                    target_ids = targets[i][:target_lengths[i]].tolist()
+                    target_str = decode_simple(target_ids, processor.idx_to_char)
+                else:
+                    # Classification Task
+                    target_str = processor.decode(targets[i])
                 
                 metrics = calculate_metrics(target_str, pred_str)
                 
