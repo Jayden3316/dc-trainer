@@ -370,11 +370,16 @@ def train(
                 pass
                 
             fname = f"{config.experiment_name}_epoch_{epoch+1}.pth"
+            
+            # Save vocab for self-contained checkpoints
+            vocab = getattr(processor, 'classes', getattr(processor, 'chars', None))
+            
             checkpoint_data = {
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'config': config.to_dict(),
+                'vocab': vocab, # Save list of classes or chars
                 'metrics': {
                     'val_loss': avg_val_loss,
                     **metrics_results
@@ -392,5 +397,5 @@ if __name__ == "__main__":
         image_base_dir=".", 
         batch_size=32,
         epochs=50,
-        model_type='asymmetric-convnext-transformer'
+        model_type=None
     )

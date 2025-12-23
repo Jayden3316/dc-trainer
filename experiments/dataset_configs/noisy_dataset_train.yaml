@@ -1,0 +1,51 @@
+# Default "Noisy" Dataset Configuration
+# All supported distortions are enabled
+# There will be three versions of the train dataset generated
+
+# noisy_dataset_small: 100k captchas
+# noisy_dataset_medium: 500k captchas
+# noisy_dataset_large: 1M captchas
+
+# the validation set is identical except for the fonts used
+# that uses a held out set of 5 fonts
+
+# the validation set has 10k captchas 
+
+# Dimensions
+width: 192
+height: 64
+width_divisor: 4
+width_bias: 0
+resize_mode: "fixed"
+image_ext: "png"
+
+# Noise (All enabled)
+noise_bg_density: 5000
+add_noise_dots: true
+add_noise_curve: true
+
+# Colors
+#fg_color: [0, 0, 0]        # Colors are randomized
+#bg_color: [255, 255, 255, 1] # Colors are randomized
+
+# Fonts
+fonts_root: "./train_font_library" 
+fonts: []
+max_fonts_per_family: 1
+font_sizes: [42]
+# contains 20 font families, one is chosen from each family
+
+# Content Source
+word_path: "experiments/diverse_words.tsv" # these have only 5 letter alphanumeric words
+random_capitalize: False
+
+# Distortions (All enabled)
+character_offset_dx: [0, 4]
+character_offset_dy: [0, 6]
+character_rotate: [-30, 30]
+character_warp_dx: [0.1, 0.3]
+character_warp_dy: [0.2, 0.3]
+word_space_probability: 0.5
+word_offset_dx: 0.25
+spacing_jitter: -5
+extra_spacing: 5

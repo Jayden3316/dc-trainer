@@ -153,8 +153,8 @@ class DatasetConfig:
 # ============================================================================
 
 @dataclass
-class AsymmetricConvNextEncoderConfig:
-    """Configuration for AsymmetricConvNextEncoder."""
+class ConvNextEncoderConfig:
+    """Configuration for ConvNextEncoder."""
     
     # Stage dimensions
     dims: List[int] = field(default_factory=lambda: [64, 128, 256, 512])
@@ -169,7 +169,11 @@ class AsymmetricConvNextEncoderConfig:
     
     # Downsample configuration
     # List of strides for the 3 downsample blocks (between stage 1-2, 2-3, 3-4)
-    downsample_strides: List[tuple[int, int]] = field(default_factory=lambda: [(2, 1), (2, 1), (2, 1)])
+    downsample_strides: List[tuple[int, int]] = field(default_factory=lambda: [(2, 2), (2, 2), (2, 2)])
+    
+    # List of kernels for the 3 downsample blocks
+    # If not specified, defaults to matching the stride (handled in Encoder class)
+    downsample_kernels: Optional[List[tuple[int, int]]] = None
     
     # ConvNextBlock configuration
     convnext_kernel_size: int = 7
@@ -186,6 +190,8 @@ class AsymmetricConvNextEncoderConfig:
             raise ValueError(f"stage_block_counts length ({len(self.stage_block_counts)}) must match dims length ({len(self.dims)})")
         if len(self.downsample_strides) != 3:
              raise ValueError(f"downsample_strides length ({len(self.downsample_strides)}) must be 3")
+        if self.downsample_kernels is not None and len(self.downsample_kernels) != 3:
+             raise ValueError(f"downsample_kernels length ({len(self.downsample_kernels)}) must be 3")
 
 
 @dataclass
@@ -201,15 +207,20 @@ class ResNetEncoderConfig:
     
     # List of strides for the 3 downsample blocks
     downsample_strides: List[tuple[int, int]] = field(default_factory=lambda: [(2, 2), (2, 2), (2, 2)])
+    
+    # List of kernels
+    downsample_kernels: Optional[List[tuple[int, int]]] = None
 
     def __post_init__(self):
         if len(self.stage_block_counts) != len(self.dims):
             raise ValueError(f"stage_block_counts length ({len(self.stage_block_counts)}) must match dims length ({len(self.dims)})")
         if len(self.downsample_strides) != 3:
              raise ValueError(f"downsample_strides length ({len(self.downsample_strides)}) must be 3")
+        if self.downsample_kernels is not None and len(self.downsample_kernels) != 3:
+             raise ValueError(f"downsample_kernels length ({len(self.downsample_kernels)}) must be 3")
 
 # Union type for encoder configs
-EncoderConfig = Union[AsymmetricConvNextEncoderConfig, ResNetEncoderConfig]
+EncoderConfig = Union[ConvNextEncoderConfig, ResNetEncoderConfig]
 
 
 # ============================================================================
@@ -445,7 +456,7 @@ class ModelConfig:
     """Main model configuration consolidating all component configs."""
     
     # Component type selection
-    encoder_type: str = 'asymmetric_convnext'
+    encoder_type: str = 'convnext'
     adapter_type: Optional[str] = None # Existing field, for simple pipelines
     
     # Advanced Pipeline Fields (Encoder -> Adapter -> Sequence -> Adapter -> Head)
@@ -490,8 +501,8 @@ class ModelConfig:
 
         # Auto-create configs if not provided, using defaults
         if self.encoder_config is None:
-            if self.encoder_type == 'asymmetric_convnext':
-                self.encoder_config = AsymmetricConvNextEncoderConfig()
+            if self.encoder_type == 'convnext':
+                self.encoder_config = ConvNextEncoderConfig()
             elif self.encoder_type == 'resnet':
                 self.encoder_config = ResNetEncoderConfig()
             # If a strict registry check is desired, we can add it, 
@@ -772,8 +783,8 @@ class ExperimentConfig:
         # This ensures consistency between data generation and model input
         
         # If encoder expects specific height, update dataset config
-        if isinstance(self.model_config.encoder_config, AsymmetricConvNextEncoderConfig):
-            # AsymmetricConvNext expects height 80
+        if isinstance(self.model_config.encoder_config, ConvNextEncoderConfig):
+            # ConvNext expects height 80
             if self.dataset_config.height != 80:
                 self.dataset_config.height = 80
                 self.dataset_config.target_height = 80

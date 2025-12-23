@@ -6,7 +6,7 @@ from typing import Optional
 
 from src.config.config import (
     ExperimentConfig, DatasetConfig, TrainingConfig, ModelConfig,
-    AsymmetricConvNextEncoderConfig, ResNetEncoderConfig, 
+    ConvNextEncoderConfig, ResNetEncoderConfig, 
     VerticalFeatureAdapterConfig, GlobalPoolingAdapterConfig, FlattenAdapterConfig,
     LinearProjectorConfig, MLPProjectorConfig, IdentityProjectorConfig, BottleneckProjectorConfig, ResidualProjectorConfig,
     TransformerEncoderConfig, TransformerDecoderConfig, RNNConfig, BiLSTMConfig,
@@ -41,7 +41,7 @@ def main():
     gen_parser = subparsers.add_parser("generate", help="Generate dataset")
     gen_parser.add_argument("--config-file", type=str, required=True, help="Path to dataset config file (YAML)")
     gen_parser.add_argument("--word-file", type=str, default=None, help="Path to words file (TSV) (overrides config)")
-    gen_parser.add_argument("--font-root", type=str, default="fonts", help="Root of font directory")
+    gen_parser.add_argument("--font-root", type=str, default=None, help="Root of font directory")
     gen_parser.add_argument("--out-dir", type=str, default="dataset", help="Output directory")
     gen_parser.add_argument("--dataset-count", type=int, default=None, help="Target number of captchas to generate")
     
@@ -71,6 +71,7 @@ def main():
     args = parser.parse_args()
     
     # Load Config Logic
+    ds_data = {} # Initialize to empty dict in case command is not generate
     try:
         if args.command == "generate":
             print(f"Loading dataset config from {args.config_file}...")
@@ -111,9 +112,12 @@ def main():
             print(f"Using {len(dataset_config.fonts)} fonts from config.")
         else:
             # --- Font Selection Logic ---
-            all_fonts = get_ttf_files(args.font_root)
+            # Resolve font_root: CLI > Config > Default
+            font_root = args.font_root or ds_data.get('fonts_root') or "fonts"
+            
+            all_fonts = get_ttf_files(font_root)
             if not all_fonts:
-                print(f"No fonts found in {args.font_root}")
+                print(f"No fonts found in {font_root}")
                 sys.exit(1)
                 
             from collections import defaultdict

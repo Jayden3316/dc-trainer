@@ -9,14 +9,14 @@ from dataclasses import asdict
 sys.path.append(os.getcwd())
 
 from src.architecture.model import CaptchaModel, StandardGenerationPipeline, StandardClassificationPipeline
-from src.config.config import ModelConfig, TaskType, AsymmetricConvNextEncoderConfig, ModelConfig, FlattenAdapterConfig, VerticalFeatureAdapterConfig
+from src.config.config import ModelConfig, TaskType, ConvNextEncoderConfig, ModelConfig, FlattenAdapterConfig, VerticalFeatureAdapterConfig
 
 def test_generation_pipeline():
     print("\n--- Testing Generation Pipeline ---")
     config = ModelConfig(
         task_type=TaskType.GENERATION,
-        encoder_type='asymmetric_convnext',
-        encoder_config=AsymmetricConvNextEncoderConfig(),
+        encoder_type='convnext',
+        encoder_config=ConvNextEncoderConfig(),
         adapter_type='vertical_feature',
         adapter_config=VerticalFeatureAdapterConfig(output_dim=1024), # 512*2 = 1024
         d_model=256,
@@ -102,14 +102,14 @@ def test_factory_dispatch():
          # For init, FlattenAdapter needs output_dim.
          # But wait, StandardClassificationPipeline checks output_dim at INIT.
          # So we must provide it.
-         # Default encoder is 'asymmetric_convnext'.
+         # Default encoder is 'convnext'.
          # But Classification usually uses ResNet?
-         # If Config default is 'asymmetric_convnext', then we need output_dim for that.
+         # If Config default is 'convnext', then we need output_dim for that.
          # Let's set encoder to resnet for cls test to be safe/simple.
          encoder_type='resnet'
     )
     # Re-checking defaults:
-    # ModelConfig default encoder_type = 'asymmetric_convnext'.
+    # ModelConfig default encoder_type = 'convnext'.
     # Resnet is safer for fixed size classification.
     
     cfg_cls = ModelConfig(

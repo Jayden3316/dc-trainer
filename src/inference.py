@@ -32,7 +32,24 @@ def run_inference(
     model.eval()
     
     # 3. Setup Processor
-    processor = CaptchaProcessor(config=config)
+    vocab = checkpoint.get('vocab')
+    metadata_path = None
+    
+    if vocab is None:
+        # Fallback for legacy checkpoints
+        if config.train_metadata_path:
+            p = Path(config.train_metadata_path)
+            if p.exists():
+                print(f"Loading vocabulary from training metadata: {p}")
+                metadata_path = str(p)
+            else:
+                 print(f"Warning: train_metadata_path {p} found in config but file does not exist. Using default/fallback vocabulary.")
+        else:
+             print("Warning: No vocab in checkpoint and no train_metadata_path in config. Using fallback vocabulary.")
+    else:
+        print(f"Loaded vocabulary of size {len(vocab)} from checkpoint.")
+
+    processor = CaptchaProcessor(config=config, metadata_path=metadata_path, vocab=vocab)
     
     results = []
     

@@ -89,15 +89,35 @@ class ResNetBlock(nn.Module):
         x = input + x
         return x
 
+class ResNetBlock(nn.Module):
+    def __init__(self, dim_in, dim_out):
+        super().__init__()
+        self.conv1 = nn.Conv2d(dim_in, dim_out, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(dim_out, dim_out, kernel_size=3, padding=1)
+        self.norm = LayerNorm2d(dim_out, eps=1e-6)
+        self.act = nn.GELU()
+
+    def forward(self, x):
+        input = x
+        x = self.conv1(x)
+        x = self.act(x)
+        x = self.conv2(x)
+        x = self.norm(x)
+        x = input + x
+        return x
+
+
 class DownsampleBlock(nn.Module):
     """
     Generic downsampling block with configurable stride/kernel.
     """
-    def __init__(self, dim_in, dim_out, stride):
+    def __init__(self, dim_in, dim_out, stride, kernel_size=None):
         super().__init__()
         self.norm = LayerNorm2d(dim_in, eps=1e-6)
-        # Assuming kernel_size == stride for patch merging style downsampling
-        self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=stride, stride=stride)
+        # Default kernel_size to stride if not specified
+        if kernel_size is None:
+            kernel_size = stride
+        self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=kernel_size, stride=stride)
 
     def forward(self, x):
         return self.conv(self.norm(x))
@@ -105,7 +125,7 @@ class DownsampleBlock(nn.Module):
 
 # ========== ENCODER IMPLEMENTATIONS ==========
 
-class AsymmetricConvNextEncoder(BaseImageEncoder):
+class ConvNextEncoder(BaseImageEncoder):
     """
     ConvNeXt-style encoder with configurable downsampling.
     
@@ -120,11 +140,16 @@ class AsymmetricConvNextEncoder(BaseImageEncoder):
         self.cfg = cfg
         dims = cfg.dims
         counts = cfg.stage_block_counts
-        # Default to old behavior if not specified
-        strides = getattr(cfg, 'downsample_strides', [(2, 1), (2, 1), (2, 1)])
+
+        strides = getattr(cfg, 'downsample_strides', [(2, 2), (2, 2), (2, 2)])
+        kernels = getattr(cfg, 'downsample_kernels', None)
+        if kernels is None:
+            kernels = [None] * 3
         
         if len(strides) != 3:
              raise ValueError(f"Expected 3 downsample strides, got {len(strides)}")
+        if len(kernels) != 3:
+             raise ValueError(f"Expected 3 downsample kernels, got {len(kernels)}")
 
         # Stem: 4x4 patches with stride 4
         self.stem = nn.Sequential(
@@ -136,20 +161,20 @@ class AsymmetricConvNextEncoder(BaseImageEncoder):
                                                     layer_scale_init_value=cfg.convnext_layer_scale_init_value) 
                                       for _ in range(counts[0])])
         
-        # Asymmetric downsampling stages
-        self.down2 = DownsampleBlock(dims[0], dims[1], stride=strides[0])
+        self.down2 = DownsampleBlock(dims[0], dims[1], stride=strides[0], kernel_size=kernels[0])
         self.stage2 = nn.Sequential(*[ConvNextBlock(dims[1],
                                                     drop_path=cfg.convnext_drop_path_rate,
                                                     layer_scale_init_value=cfg.convnext_layer_scale_init_value) 
                                       for _ in range(counts[1])])
         
-        self.down3 = DownsampleBlock(dims[1], dims[2], stride=strides[1])
+        self.down3 = DownsampleBlock(dims[1], dims[2], stride=strides[1], kernel_size=kernels[1])
         self.stage3 = nn.Sequential(*[ConvNextBlock(dims[2],
                                                     drop_path=cfg.convnext_drop_path_rate,
                                                     layer_scale_init_value=cfg.convnext_layer_scale_init_value) 
                                       for _ in range(counts[2])])
         
-        self.down4 = DownsampleBlock(dims[2], dims[3], stride=strides[2])
+
+        self.down4 = DownsampleBlock(dims[2], dims[3], stride=strides[2], kernel_size=kernels[2])
         self.stage4 = nn.Sequential(*[ConvNextBlock(dims[3],
                                                     drop_path=cfg.convnext_drop_path_rate,
                                                     layer_scale_init_value=cfg.convnext_layer_scale_init_value) 
@@ -207,20 +232,26 @@ class ResNetEncoder(BaseImageEncoder):
         
         # Default to symmetric (2,2) if not specified
         strides = getattr(cfg, 'downsample_strides', [(2, 2), (2, 2), (2, 2)])
+        kernels = getattr(cfg, 'downsample_kernels', None)
+        if kernels is None:
+            kernels = [None] * 3
 
         if len(strides) != 3:
              raise ValueError(f"Expected 3 downsample strides, got {len(strides)}")
+        if len(kernels) != 3:
+             raise ValueError(f"Expected 3 downsample kernels, got {len(kernels)}")
 
         self.stem = nn.Sequential(
             nn.Conv2d(3, dims[0], kernel_size=4, stride=4),
             LayerNorm2d(dims[0], eps=1e-6)
         )
         self.stage1 = nn.Sequential(*[ResNetBlock(dims[0], dims[0]) for _ in range(counts[0])])
-        self.down2 = DownsampleBlock(dims[0], dims[1], stride=strides[0])
+        self.stage1 = nn.Sequential(*[ResNetBlock(dims[0], dims[0]) for _ in range(counts[0])])
+        self.down2 = DownsampleBlock(dims[0], dims[1], stride=strides[0], kernel_size=kernels[0])
         self.stage2 = nn.Sequential(*[ResNetBlock(dims[1], dims[1]) for _ in range(counts[1])])
-        self.down3 = DownsampleBlock(dims[1], dims[2], stride=strides[1])
+        self.down3 = DownsampleBlock(dims[1], dims[2], stride=strides[1], kernel_size=kernels[1])
         self.stage3 = nn.Sequential(*[ResNetBlock(dims[2], dims[2]) for _ in range(counts[2])])
-        self.down4 = DownsampleBlock(dims[2], dims[3], stride=strides[2])
+        self.down4 = DownsampleBlock(dims[2], dims[3], stride=strides[2], kernel_size=kernels[2])
         self.stage4 = nn.Sequential(*[ResNetBlock(dims[3], dims[3]) for _ in range(counts[3])])
         self._output_channels = dims[3]
 
@@ -245,9 +276,9 @@ class ResNetEncoder(BaseImageEncoder):
 # ========== REGISTRATION ==========
 
 REGISTRY.register_encoder(
-    name='asymmetric_convnext',
-    cls=AsymmetricConvNextEncoder,
-    description='ConvNeXt with asymmetric downsampling for CTC',
+    name='convnext',
+    cls=ConvNextEncoder,
+    description='ConvNeXt based image encoder',
     compatible_heights=[80],
     width_divisor=4,
 )
@@ -255,7 +286,7 @@ REGISTRY.register_encoder(
 REGISTRY.register_encoder(
     name='resnet',
     cls=ResNetEncoder,
-    description='ResNet encoder for image based classification',
+    description='ResNet based image encoder',
     compatible_heights=[80],
     width_divisor=4,
 )

@@ -6,11 +6,15 @@ __pycache__
 
 *.ttf
 *.txt
+!wiki_words_20k.txt
+
 *.pth
 
 *.log
 
 *.csv
+*.tsv
+!diverse_words.tsv
 
 wandb/
 checkpoints/

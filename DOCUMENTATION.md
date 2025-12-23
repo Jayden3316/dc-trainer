@@ -21,7 +21,7 @@ graph LR
 ```
 
 1.  **Encoder**: Extracts visual features from the input image.
-    *   Types: `asymmetric_convnext`, `resnet`, `legacy_cnn`.
+    *   Types: `convnext`, `resnet`.
 2.  **Adapter**: Reshapes or processes encoder features to interface with the rest of the pipeline.
     *   `vertical_feature`: Groups the vertical dimension with 'f' horizontal pixels based on output size. i.e., [B, C, H, W] -> [B, W//f, C * H * f]. C * H * f is specified and f is internally computed. Throws error if (output_dim/C * H) is not an integer. Expects user to set width multiplier appropriately when variable width image processing is used, otherwise, W//f will throw an error. 1D sequence (for OCR).
     *   `flatten`: Flattens all spatial dimensions (for classification).
@@ -72,7 +72,7 @@ The project uses a strictly typed, hierarchical configuration system based on Py
 | :--- | :--- | :--- | :--- |
 | `task_type` | `str` | `"generation"` | `"generation"`, `"classification"`. |
 | `pipeline_type` | `str` | `None` | `"standard_generation"`, `"standard_classification"`, `"sequence_classification"`. |
-| `encoder_type` | `str` | `"asymmetric_convnext"` | `"resnet"`, etc. |
+| `encoder_type` | `str` | `"convnext"` | `"resnet"`, etc. |
 | `adapter_type` | `str` | `None` | `"vertical_collapse"`, `"flatten"`. |
 | `sequence_model_type`| `str` | `"transformer_encoder"`| `"rnn"`, `"bilstm"`. |
 | `head_type` | `str` | `"ctc"` | `"classification"`. |

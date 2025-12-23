@@ -26,7 +26,7 @@ model_config:
   task_type: "classification"
   
   # 1. Encoder
-  encoder_type: "asymmetric_convnext"
+  encoder_type: "convnext"
   encoder_config:
     dims: [32, 64, 128, 256]
     stage_block_counts: [2, 2, 6, 2]

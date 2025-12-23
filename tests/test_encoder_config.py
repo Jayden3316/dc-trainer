@@ -1,29 +1,29 @@
 
 import torch
-from src.config.config import AsymmetricConvNextEncoderConfig, ResNetEncoderConfig
-from src.architecture.components.encoders import AsymmetricConvNextEncoder, ResNetEncoder
+from src.config.config import ConvNextEncoderConfig, ResNetEncoderConfig
+from src.architecture.components.encoders import ConvNextEncoder, ResNetEncoder
 
 def test_encoders():
-    print("Testing AsymmetricConvNextEncoder...")
-    # Test default (2, 1) strides
-    cfg = AsymmetricConvNextEncoderConfig()
+    print("Testing ConvNextEncoder...")
+    # Test default (2, 2) strides
+    cfg = ConvNextEncoderConfig()
     print(f"Default strides: {cfg.downsample_strides}")
-    model = AsymmetricConvNextEncoder(cfg)
+    model = ConvNextEncoder(cfg)
     x = torch.randn(1, 3, 80, 200)
     out = model(x)
     print(f"Input: {x.shape}, Output: {out.shape}") 
-    # Height should be 80 -> 20 (stem /4) -> 10 (down2) -> 5 (down3) -> 2 (down4)
+    # Height should be 80 -> 20 (stem /4) -> 10 (down2) -> 5 (down3) -> 2 (down4) TODO: Update comment
     # Width should be 200 -> 50 (stem /4) -> 50 -> 50 -> 50
     # Expected: [1, 512, 2, 50]
     assert out.shape == (1, 512, 2, 50)
     print("Default config passed.")
 
     # Test custom strides (aggressive width reduction)
-    cfg_custom = AsymmetricConvNextEncoderConfig(
+    cfg_custom = ConvNextEncoderConfig(
         downsample_strides=[(1, 2), (1, 2), (1, 2)]
     )
     print(f"Custom strides: {cfg_custom.downsample_strides}")
-    model_custom = AsymmetricConvNextEncoder(cfg_custom)
+    model_custom = ConvNextEncoder(cfg_custom)
     out_custom = model_custom(x)
     print(f"Input: {x.shape}, Output: {out_custom.shape}")
     # Height: 80 -> 20 (stem) -> 20 -> 20 -> 20 (no vertical downsample)

@@ -22,7 +22,7 @@ def evaluate(
 ):
     # 1. Load Checkpoint
     print(f"Loading checkpoint from {checkpoint_path}...")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     
     if 'config' not in checkpoint:
         raise ValueError(f"Checkpoint at {checkpoint_path} does not contain configuration. Please use a checkpoint trained with the updated train.py.")
@@ -43,21 +43,30 @@ def evaluate(
     
     # 4. Setup Data
     print(f"Loading evaluation dataset from {metadata_path}...")
-    # Initialize processor with config
-    processor = CaptchaProcessor(config=config)
+    # 4. Setup Data
+    print(f"Loading evaluation dataset from {metadata_path}...")
+    
+    # 3. Setup Processor
+    vocab = checkpoint.get('vocab')
+    vocab_path = None
+    
+    if vocab is None:
+        # Fallback for legacy checkpoints
+        if config.train_metadata_path:
+            p = Path(config.train_metadata_path)
+            if p.exists():
+                print(f"Loading vocabulary from training metadata: {p}")
+                vocab_path = str(p)
+            else:
+                 print(f"Warning: train_metadata_path {p} found in config but file does not exist. Using default/fallback vocabulary.")
+        else:
+             print("Warning: No vocab in checkpoint and no train_metadata_path in config. Using fallback vocabulary.")
+    else:
+        print(f"Loaded vocabulary of size {len(vocab)} from checkpoint.")
+
+    processor = CaptchaProcessor(config=config, metadata_path=vocab_path, vocab=vocab)
     
     # Create dataset
-    # We assume image base dir is usually related to where the script is run or config, 
-    # but strictly speaking, evaluation might happen on a different machine with different paths.
-    # The ExperimentConfig has image_base_dir. We might want to allow override if needed, 
-    # but for now let's use what's in config or current dir if relative.
-    # Actually, CaptchaDataset takes base_dir. 
-    # Let's trust the config's image_base_dir or use '.' if relative handling is needed.
-    # Ideally, we should allow overriding image_dir.
-    # But evaluating usually implies we have the data.
-    # Let's stick to config.image_base_dir for now, as per plan. 
-    # If users need override, they can change the config or we add arg later.
-    
     dataset = CaptchaDataset(
         metadata_path=metadata_path, 
         processor=processor, 
@@ -75,10 +84,9 @@ def evaluate(
     print(f"Evaluation samples: {len(dataset)}")
     
     # 5. Run Evaluation
-    total_edit_distance = 0.0
-    total_char_accuracy = 0.0
-    exact_matches = 0
     total_samples = 0
+    val_preds = []
+    val_targets = []
     
     print("Starting evaluation...")
     with torch.no_grad():
@@ -102,31 +110,70 @@ def evaluate(
                     # Classification Task
                     target_str = processor.decode(targets[i])
                 
-                metrics = calculate_metrics(target_str, pred_str)
-                
-                total_edit_distance += metrics['edit_distance']
-                total_char_accuracy += metrics['character_accuracy']
-                if metrics['exact_match']:
-                    exact_matches += 1
+                val_preds.append(pred_str)
+                val_targets.append(target_str)
                     
             total_samples += images.size(0)
             
-    # 6. Report
-    avg_char_acc = total_char_accuracy / total_samples if total_samples > 0 else 0.0
-    avg_edit_dist = total_edit_distance / total_samples if total_samples > 0 else 0.0
-    exact_match_acc = exact_matches / total_samples if total_samples > 0 else 0.0
-    
+    # 6. Report & Calculate Metrics
     print("\n" + "="*50)
     print("EVALUATION RESULTS")
     print("="*50)
     print(f"Total Samples: {total_samples}")
-    print(f"Character Accuracy: {avg_char_acc:.4f}")
-    print(f"Edit Distance:      {avg_edit_dist:.4f}")
-    print(f"Exact Match (Word): {exact_match_acc:.4f}")
+    
+    results = {}
+    metrics_to_compute = config.training_config.metrics
+    
+    # Default metrics if none specified
+    if not metrics_to_compute:
+        print("No metrics specified in config. Using default set.")
+        # Infer defaults based on task type ideally, but let's do a safe set
+        if config.model_config.task_type == 'classification':
+             metrics_to_compute = ['accuracy']
+        else:
+             metrics_to_compute = ['character_accuracy', 'exact_match']
+
+    if metrics_to_compute:
+        # 1. OCR-style metrics
+        ocr_keys = ['character_accuracy', 'edit_distance', 'exact_match']
+        needed_ocr = [m for m in metrics_to_compute if m in ocr_keys]
+        
+        if needed_ocr:
+            total_edit_dist = 0.0
+            total_char_acc = 0.0
+            total_exact = 0
+            
+            for t, p in zip(val_targets, val_preds):
+                m = calculate_metrics(t, p)
+                total_edit_dist += m['edit_distance']
+                total_char_acc += m['character_accuracy']
+                if m['exact_match']:
+                    total_exact += 1
+            
+            if 'edit_distance' in needed_ocr:
+                val = total_edit_dist / total_samples if total_samples > 0 else 0
+                results['edit_distance'] = val
+                print(f"Edit Distance:      {val:.4f}")
+            if 'character_accuracy' in needed_ocr:
+                val = total_char_acc / total_samples if total_samples > 0 else 0
+                results['character_accuracy'] = val
+                print(f"Character Accuracy: {val:.4f}")
+            if 'exact_match' in needed_ocr:
+                val = total_exact / total_samples if total_samples > 0 else 0
+                results['exact_match'] = val
+                print(f"Exact Match (Word): {val:.4f}")
+
+        # 2. Classification-style metrics
+        cls_keys = ['f1', 'precision', 'recall', 'accuracy']
+        needed_cls = [m for m in metrics_to_compute if m in cls_keys]
+        
+        if needed_cls:
+            from src.utils import calculate_classification_metrics
+            cls_results = calculate_classification_metrics(val_targets, val_preds, needed_cls)
+            results.update(cls_results)
+            for k, v in cls_results.items():
+                 print(f"{k.capitalize()}: {v:.4f}")
+
     print("="*50 + "\n")
     
-    return {
-        "char_accuracy": avg_char_acc,
-        "edit_distance": avg_edit_dist,
-        "exact_match": exact_match_acc
-    }
+    return results

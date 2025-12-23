@@ -1,11 +1,23 @@
 # Default "Clean" Dataset Configuration
 # No noise, no distortions, black text on white background.
+# There will be three versions of the train dataset generated
+
+# clean_dataset_small: 100k captchas
+# clean_dataset_medium: 500k captchas
+# clean_dataset_large: 1M captchas
+
+# the validation set is identical except for the fonts used
+# that uses a held out set of 5 fonts
+
+# the validation set has 10k captchas
 
 # Dimensions
-width: 160
-height: 80
+width: 192
+height: 64
 width_divisor: 4
 width_bias: 0
+resize_mode: "fixed"
+image_ext: "png"
 
 # Noise (Disable all)
 noise_bg_density: 0
@@ -17,13 +29,14 @@ fg_color: [0, 0, 0]       # Black
 bg_color: [255, 255, 255, 1] # White
 
 # Fonts
-fonts_root: "font_library"
+fonts_root: "./val_font_library" 
 fonts: []
 max_fonts_per_family: 1
 font_sizes: [42]
+# contains 20 font families, one is chosen from each family
 
 # Content Source
-word_path: "experiments/diverse_words.tsv"
+word_path: "experiments/diverse_words.tsv" # these have only 5 letter alphanumeric words
 random_capitalize: False
 
 # Distortions (Disable all)

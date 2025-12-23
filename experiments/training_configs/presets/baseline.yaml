@@ -13,7 +13,7 @@ dataset_config:
 
 model_config:
   task_type: "generation"
-  encoder_type: "asymmetric_convnext"
+  encoder_type: "convnext"
   encoder_config:
     dims: [64, 128, 256, 512]
     stage_block_counts: [2, 2, 6, 2]
