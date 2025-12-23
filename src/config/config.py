@@ -168,8 +168,8 @@ class AsymmetricConvNextEncoderConfig:
     stem_in_channels: int = 3
     
     # Downsample configuration
-    downsample_kernel_size: tuple[int, int] = (2, 1)
-    downsample_stride: tuple[int, int] = (2, 1)
+    # List of strides for the 3 downsample blocks (between stage 1-2, 2-3, 3-4)
+    downsample_strides: List[tuple[int, int]] = field(default_factory=lambda: [(2, 1), (2, 1), (2, 1)])
     
     # ConvNextBlock configuration
     convnext_kernel_size: int = 7
@@ -184,6 +184,8 @@ class AsymmetricConvNextEncoderConfig:
     def __post_init__(self):
         if len(self.stage_block_counts) != len(self.dims):
             raise ValueError(f"stage_block_counts length ({len(self.stage_block_counts)}) must match dims length ({len(self.dims)})")
+        if len(self.downsample_strides) != 3:
+             raise ValueError(f"downsample_strides length ({len(self.downsample_strides)}) must be 3")
 
 
 @dataclass
@@ -196,10 +198,15 @@ class ResNetEncoderConfig:
     # Internal dimensions
     dims: List[int] = field(default_factory=lambda: [64, 128, 256, 512])
     stage_block_counts: List[int] = field(default_factory=lambda: [2, 2, 6, 2])
+    
+    # List of strides for the 3 downsample blocks
+    downsample_strides: List[tuple[int, int]] = field(default_factory=lambda: [(2, 2), (2, 2), (2, 2)])
 
     def __post_init__(self):
         if len(self.stage_block_counts) != len(self.dims):
             raise ValueError(f"stage_block_counts length ({len(self.stage_block_counts)}) must match dims length ({len(self.dims)})")
+        if len(self.downsample_strides) != 3:
+             raise ValueError(f"downsample_strides length ({len(self.downsample_strides)}) must be 3")
 
 # Union type for encoder configs
 EncoderConfig = Union[AsymmetricConvNextEncoderConfig, ResNetEncoderConfig]

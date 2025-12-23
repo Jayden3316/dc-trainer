@@ -30,7 +30,7 @@ model_config:
   encoder_config:
     dims: [32, 64, 128, 256]
     stage_block_counts: [2, 2, 6, 2]
-    
+    strides: [(2, 1), (2, 1), (2, 1), (2, 1)]
   # 2. Adapter (Spatial -> Sequence)
   encoder_adapter_type: "vertical_feature"
   encoder_adapter_config:

@@ -34,6 +34,8 @@ model_config:
     # ResNet dimensions per stage
     dims: [8, 16, 24, 48] 
     stage_block_counts: [2, 2, 6, 2]
+    strides: [(2, 2), (2, 2), (2, 2), (2, 2)] 
+    # ([B, C, 80, 200] -> [B, C, 20, 50]) -> ([B, C, 10, 25] -> [B, C, 5, 12] -> [B, C, 2, 6])
     
   # --- 2. Adapter (Spatial -> Vector) ---
   adapter_type: "flatten" # "flatten", "global_pool", or "vertical_feature"
