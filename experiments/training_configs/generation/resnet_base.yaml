@@ -99,7 +99,7 @@ training_config:
 
 
   save_every_n_epochs: 1
-  monitor_metric: "word_correct"
+  monitor_metric: "exact_match"
 
   wandb_project: "captcha-ocr"
   # wandb_name: "<experiment_name>" Takes experiment from config file if not specified
@@ -110,4 +110,4 @@ training_config:
   mixed_precision: false
   shuffle_train: true
 
-  metrics: ['character_accuracy', 'word_correct', 'edit_distance']
+  metrics: ['character_accuracy', 'edit_distance', 'exact_match']
