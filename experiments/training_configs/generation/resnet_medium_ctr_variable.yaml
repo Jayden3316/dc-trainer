@@ -1,4 +1,4 @@
-experiment_name: "resnet_base_transformer_generation_variable"
+experiment_name: "resnet_medium_ctr_generation_variable"
 
 seed: 42
 
@@ -20,8 +20,8 @@ dataset_config:
     #word_path: "experiments/diverse_words.tsv"
 
     random_capitalize: False
-    add_noise_dots: False
-    add_noise_curve: False
+    add_noise_dots: True
+    add_noise_curve: True
 
     noise_bg_density: 0
 
@@ -30,11 +30,11 @@ dataset_config:
     word_space_probability: 0
     word_offset_dx: 0.0
 
-    character_offset_dx: [0, 0]
-    character_offset_dy: [0, 0]
-    character_rotate: [0, 0]
-    character_warp_dx: [0, 0.0]
-    character_warp_dy: [0.0, 0.0]
+    character_offset_dx: [0, 4]
+    character_offset_dy: [0, 6]
+    character_rotate: [-30, 30]
+    character_warp_dx: [0.1, 0.3]
+    character_warp_dy: [0.2, 0.3]
 
     # random colors are used by default
     # bg_color: [255, 255, 255, 1]
@@ -50,7 +50,7 @@ model_config:
     task_type: "generation"
     encoder_type: "resnet"
     encoder_config:
-        dims: [8, 16, 24, 48]
+        dims: [16, 32, 48, 96]
         stem_kernel_size: 4
         stem_stride: 4
         stem_in_channels: 3
@@ -61,27 +61,17 @@ model_config:
 
     adapter_type: "vertical_feature"
     adapter_config:
-        output_dim: 96 # 48 * 2 
+        output_dim: 192 # 96 * 2 
 
     projector_type: 'identity'
-    sequence_model_type: 'transformer_encoder'
-    sequence_model_config:
-        n_layers: 2
-        d_model: 96
-        n_head: 4
-        d_mlp: 384
-        n_ctx: 384
+    sequence_model_type: null
 
-    sequence_adapter: "identity"
-    sequence_adapter_config:
-        output_dim: 96
-    
     head_type: "ctc"
     head_config:
-        d_model: 96
+        d_model: 192
     
     # global config
-    d_model: 96
+    d_model: 192
     d_vocab: 62
     loss_type: "ctc"
 
@@ -105,7 +95,7 @@ training_config:
   grad_clip_norm: 1.0
   accumulate_grad_batches: 1
   
-  checkpoint_dir: "experiments/generation/resnet_base_clean_fixed/checkpoints" # updated as needed
+  checkpoint_dir: "experiments/generation/resnet_medium_variable/checkpoints" # updated as needed
 
 
   save_every_n_epochs: 1

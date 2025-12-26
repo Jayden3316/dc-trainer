@@ -41,6 +41,12 @@ def hydrate_config(data: Dict[str, Any]) -> ExperimentConfig:
 
         # Filter keys that valid for the dataclass
         valid_keys = cls.__dataclass_fields__.keys()
+        
+        if 'n_ctx' in config_dict:
+             print(f"DEBUG LOADER: n_ctx found in YAML for {type_name}: {config_dict['n_ctx']}")
+             if 'n_ctx' not in valid_keys:
+                 print(f"DEBUG LOADER: n_ctx NOT in valid_keys for {cls}")
+        
         filtered_args = {k: v for k, v in config_dict.items() if k in valid_keys}
         return cls(**filtered_args)
 
