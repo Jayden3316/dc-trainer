@@ -175,8 +175,9 @@ class ConvNextEncoderConfig:
     stage_block_counts: List[int] = field(default_factory=lambda: [2, 2, 6, 2])
     
     # Stem configuration
-    stem_kernel_size: int = 4
-    stem_stride: int = 4
+    stem_kernel_size: tuple[int, int] | int = 4
+    stem_stride: tuple[int, int] | int = 4
+    stem_padding: tuple[int, int] | int = 0
     stem_in_channels: int = 3
     
     # Downsample configuration
@@ -220,8 +221,9 @@ class ResNetEncoderConfig:
     dims: List[int] = field(default_factory=lambda: [64, 128, 256, 512])
     stage_block_counts: List[int] = field(default_factory=lambda: [2, 2, 6, 2])
     
-    stem_kernel_size: int = 4
-    stem_stride: int = 4
+    stem_kernel_size: tuple[int, int] | int = 4
+    stem_stride: tuple[int, int] | int = 4
+    stem_padding: tuple[int, int] | int = 0
     stem_in_channels: int = 3
     
     # List of strides for the 3 downsample blocks

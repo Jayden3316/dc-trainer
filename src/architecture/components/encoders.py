@@ -139,7 +139,7 @@ class ConvNextEncoder(BaseImageEncoder):
 
         # Stem: 4x4 patches with stride 4
         self.stem = nn.Sequential(
-            nn.Conv2d(3, dims[0], kernel_size=cfg.stem_kernel_size, stride=cfg.stem_stride),
+            nn.Conv2d(3, dims[0], kernel_size=cfg.stem_kernel_size, stride=cfg.stem_stride, padding=cfg.stem_padding),
             LayerNorm2d(dims[0], eps=1e-6)
         )
         self.stage1 = nn.Sequential(*[ConvNextBlock(dims[0], 
@@ -231,7 +231,7 @@ class ResNetEncoder(BaseImageEncoder):
              raise ValueError(f"Expected 3 downsample padding, got {len(padding)}")
 
         self.stem = nn.Sequential(
-            nn.Conv2d(cfg.stem_in_channels, dims[0], kernel_size=cfg.stem_kernel_size, stride=cfg.stem_stride),
+            nn.Conv2d(cfg.stem_in_channels, dims[0], kernel_size=cfg.stem_kernel_size, stride=cfg.stem_stride, padding=cfg.stem_padding),
             LayerNorm2d(dims[0], eps=1e-6)
         )
         self.stage1 = nn.Sequential(*[ResNetBlock(dims[0], dims[0]) for _ in range(counts[0])])
