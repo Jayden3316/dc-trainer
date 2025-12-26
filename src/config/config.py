@@ -35,6 +35,8 @@ class NormalizationType(str, Enum):
     RMS = "RMS"
     LAYER = "layer"
     BATCH = "batch"
+    RMSNormPre = "RMSNormPre"
+    LayerNorm = "LayerNorm"
 
 
 class PositionalEmbeddingType(str, Enum):
@@ -359,6 +361,7 @@ class TransformerConfig(HookedTransformerConfig):
     act_fn: str = "gelu" # Required by HookedTransformerConfig if attn_only=False
     dtype: torch.dtype = torch.float32
     device: Optional[str] = None
+    normalization_type: NormalizationType = NormalizationType.RMSNormPre
     
     # Extra fields for our usage
     dropout: float = 0.0

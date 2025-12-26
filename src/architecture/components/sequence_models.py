@@ -4,21 +4,12 @@ All sequence models inherit from BaseSequenceModel.
 """
 
 import copy
+import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from jaxtyping import Float, Int
 from typing import Optional, TYPE_CHECKING, Any
-
-from transformer_lens.components import (
-    TransformerBlock,
-    RMSNorm,
-    Attention,
-    MLP
-)
-from transformer_lens.hook_points import HookPoint
-
-from .base import BaseSequenceModel
-from ..registry import REGISTRY
 
 from .base import BaseSequenceModel
 from ..registry import REGISTRY
@@ -31,74 +22,157 @@ from ...config import (
 
 Tensor = torch.Tensor
 
+# ============================================================================
+# UTILITIES
+# ============================================================================
 
-class CaptchaDecoderBlock(nn.Module):
-    """
-    Transformer Decoder Block with Cross Attention.
-    Structure: RMSNorm -> Self Attn -> RMSNorm -> Cross Attn -> RMSNorm -> MLP
-    """
-    def __init__(self, cfg: TransformerDecoderConfig, block_index: int):
+class RMSNorm(nn.Module):
+    def __init__(self, d_model: int, eps: float = 1e-4):
         super().__init__()
-        self.cfg = cfg
+        self.d_model = d_model
+        self.eps = eps
+        self.scale = nn.Parameter(torch.ones(d_model))
+        self.offset = nn.Parameter(torch.zeros(d_model))
+
+    def forward(self, x):
+        norm = torch.norm(x, dim=-1, keepdim=True) * (self.d_model ** -0.5)
+        return x / (norm + self.eps) * self.scale + self.offset
+
+class MLP(nn.Module):
+    def __init__(self, d_model: int, d_mlp: int, act_fn: str = "gelu", dropout: float = 0.0):
+        super().__init__()
+        self.W_in = nn.Linear(d_model, d_mlp)
+        self.W_out = nn.Linear(d_mlp, d_model)
         
-        self.ln1 = RMSNorm(cfg)
+        if act_fn == "gelu":
+            self.act = nn.GELU()
+        elif act_fn == "relu":
+            self.act = nn.ReLU()
+        elif act_fn == "silu":
+            self.act = nn.SiLU()
+        else:
+            self.act = nn.Identity()
+            
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        return self.W_out(self.dropout(self.act(self.W_in(x))))
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model: int, n_heads: int, d_head: int, attention_dir: str = "bidirectional", dropout: float = 0.0):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_head = d_head
+        self.attention_dir = attention_dir
         
-        # Self attention uses bidirectional context for the queries themselves
-        self_attn_cfg = copy.deepcopy(cfg)
-        self_attn_cfg.attention_dir = 'bidirectional'
-        self.self_attn = Attention(self_attn_cfg, "global", block_index)
+        self.W_Q = nn.Linear(d_model, n_heads * d_head, bias=False)
+        self.W_K = nn.Linear(d_model, n_heads * d_head, bias=False)
+        self.W_V = nn.Linear(d_model, n_heads * d_head, bias=False)
+        self.W_O = nn.Linear(n_heads * d_head, d_model, bias=False)
         
-        self.ln2 = RMSNorm(cfg)
+        self.dropout = nn.Dropout(dropout)
+        self.scale = d_head ** -0.5
+
+    def forward(self, x_q, x_k, x_v, mask=None, is_cross_attention=False):
+        # x_q: [batch, seq_q, d_model]
+        # x_k: [batch, seq_k, d_model]
+        # x_v: [batch, seq_k, d_model]
         
-        # Cross attention attends to encoder outputs
-        cross_cfg = copy.deepcopy(cfg)
-        cross_cfg.attention_dir = "bidirectional"
-        cross_cfg.positional_embedding_type = 'standard'
-        self.cross_attn = Attention(cross_cfg, "global", block_index)
+        B, Sq, _ = x_q.size()
+        Bk, Sk, _ = x_k.size()
         
-        self.ln3 = RMSNorm(cfg)
-        self.mlp = MLP(cfg)
+        Q = self.W_Q(x_q).view(B, Sq, self.n_heads, self.d_head).transpose(1, 2) # [B, H, Sq, Dh]
+        K = self.W_K(x_k).view(Bk, Sk, self.n_heads, self.d_head).transpose(1, 2) # [B, H, Sk, Dh]
+        V = self.W_V(x_v).view(Bk, Sk, self.n_heads, self.d_head).transpose(1, 2) # [B, H, Sk, Dh]
         
-        # Hooks
-        self.hook_self_attn_out = HookPoint()
-        self.hook_cross_attn_out = HookPoint()
-        self.hook_mlp_out = HookPoint()
-        self.hook_resid_mid = HookPoint()   # After self attn
-        self.hook_resid_mid2 = HookPoint()  # After cross attn
-        self.hook_resid_post = HookPoint()  # After MLP
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale # [B, H, Sq, Sk]
         
-    def forward(
-        self, 
-        x: Float[torch.Tensor, "batch pos d_model"], 
-        encoder_out: Float[torch.Tensor, "batch enc_pos d_model"]
-    ) -> Float[torch.Tensor, "batch pos d_model"]:
+        if mask is not None:
+            # mask should be broadcastable to [B, H, Sq, Sk]
+            attn_scores = attn_scores.masked_fill(mask == 0, float('-inf'))
+            
+        if self.attention_dir == "causal" and not is_cross_attention:
+            causal_mask = torch.triu(torch.ones(Sq, Sk, device=x_q.device), diagonal=1).bool()
+            attn_scores = attn_scores.masked_fill(causal_mask, float('-inf'))
+            
+        attn_probs = F.softmax(attn_scores, dim=-1)
+        attn_probs = self.dropout(attn_probs)
         
+        out = torch.matmul(attn_probs, V) # [B, H, Sq, Dh]
+        out = out.transpose(1, 2).contiguous().view(B, Sq, self.n_heads * self.d_head)
+        return self.W_O(out)
+
+class TransformerEncoderBlock(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.ln1 = RMSNorm(cfg.d_model)
+        self.attn = MultiHeadAttention(
+            cfg.d_model, cfg.n_heads, cfg.d_head, 
+            attention_dir="bidirectional", 
+            dropout=cfg.attn_dropout
+        )
+        self.ln2 = RMSNorm(cfg.d_model)
+        self.mlp = MLP(cfg.d_model, cfg.d_mlp, cfg.act_fn, cfg.dropout)
+
+    def forward(self, x):
+        resid = x
+        x = self.ln1(x)
+        x = self.attn(x, x, x)
+        x = resid + x
+        
+        resid = x
+        x = self.ln2(x)
+        x = self.mlp(x)
+        x = resid + x
+        return x
+
+class TransformerDecoderBlock(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.ln1 = RMSNorm(cfg.d_model)
+        self.self_attn = MultiHeadAttention(
+            cfg.d_model, cfg.n_heads, cfg.d_head, 
+            attention_dir="bidirectional", # Queries attend to queries fully? Usually causal context for generation.
+            # But here user said "Transformer Decoder stack (Self-Attention + Cross-Attention). Used for DETR-style decoding where 'x' are queries and 'encoder_out' is visual features."
+            # DETR queries attend to each other, full bidirectional usually.
+            dropout=cfg.attn_dropout
+        )
+        
+        self.ln2 = RMSNorm(cfg.d_model)
+        self.cross_attn = MultiHeadAttention(
+            cfg.d_model, cfg.n_heads, cfg.d_head, 
+            attention_dir="bidirectional", 
+            dropout=cfg.attn_dropout
+        )
+        
+        self.ln3 = RMSNorm(cfg.d_model)
+        self.mlp = MLP(cfg.d_model, cfg.d_mlp, cfg.act_fn, cfg.dropout)
+
+    def forward(self, x, encoder_out):
         # Self Attention
         resid = x
         x = self.ln1(x)
-        x = self.self_attn(x, x, x) 
-        x = self.hook_self_attn_out(x)
+        x = self.self_attn(x, x, x, is_cross_attention=False)
         x = resid + x
-        x = self.hook_resid_mid(x)
         
         # Cross Attention
         resid = x
         x = self.ln2(x)
-        x = self.cross_attn(x, encoder_out, encoder_out)
-        x = self.hook_cross_attn_out(x)
+        x = self.cross_attn(x, encoder_out, encoder_out, is_cross_attention=True)
         x = resid + x
-        x = self.hook_resid_mid2(x)
         
         # MLP
         resid = x
         x = self.ln3(x)
         x = self.mlp(x)
-        x = self.hook_mlp_out(x)
         x = resid + x
-        x = self.hook_resid_post(x)
-        
         return x
 
+
+# ============================================================================
+# MODELS
+# ============================================================================
 
 class TransformerEncoderModel(BaseSequenceModel):
     """
@@ -108,12 +182,8 @@ class TransformerEncoderModel(BaseSequenceModel):
         super().__init__()
         self.cfg = cfg
         
-        # Ensure bidirectional attention for visual/sequence encoding
-        enc_cfg = copy.deepcopy(cfg)
-        enc_cfg.attention_dir = 'bidirectional'
-        
         self.blocks = nn.ModuleList([
-            TransformerBlock(enc_cfg, i) for i in range(cfg.n_layers)
+            TransformerEncoderBlock(cfg) for _ in range(cfg.n_layers)
         ])
 
     @property
@@ -139,7 +209,7 @@ class TransformerDecoderModel(BaseSequenceModel):
         super().__init__()
         self.cfg = cfg
         self.blocks = nn.ModuleList([
-            CaptchaDecoderBlock(cfg, i) for i in range(cfg.n_layers)
+            TransformerDecoderBlock(cfg) for _ in range(cfg.n_layers)
         ])
 
     @property
