@@ -78,7 +78,7 @@ model_config:
 training_config:
   batch_size: 32
   
-  training_steps: 25000 # num_samples = training_steps * batch_size = 1.6 * 10^6 
+  training_steps: 50000 # num_samples = training_steps * batch_size = 1.6 * 10^6 
   # training_steps is set to be of the order of the number of parameters in the model
   # should be adjusted for every model
   # for generation tasks, the number of possible words are huge
