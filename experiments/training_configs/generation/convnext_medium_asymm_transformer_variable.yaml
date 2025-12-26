@@ -3,11 +3,11 @@ experiment_name: "convnext_medium_asymm_transformer_generation_variable"
 seed: 42
 
 dataset_config:
-    width: 192
+    width: 384
     height: 64
     width_divisor: 32
     width_bias: 0
-    resize_mode: "variable"
+    resize_mode: "fixed"
     image_ext: "png"
 
     train_font_root: "./train_font_library" 
@@ -73,7 +73,7 @@ model_config:
         d_model: 128
         n_head: 4
         d_mlp: 512
-        n_ctx: 1024
+        n_ctx: 384
 
     sequence_adapter: "linear"
     sequence_adapter_config:

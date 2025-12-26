@@ -3,7 +3,7 @@ experiment_name: "resnet_medium_asymm_transformer_generation_variable"
 seed: 42
 
 dataset_config:
-    width: 192
+    width: 384
     height: 64
     width_divisor: 32
     width_bias: 0
@@ -65,26 +65,26 @@ model_config:
 
     projector_type: 'linear'
     projector_config:
-        output_dim: 96
+        output_dim: 192
     
     sequence_model_type: 'transformer_encoder'
     sequence_model_config:
         n_layers: 2
-        d_model: 96
+        d_model: 192
         n_head: 4
         d_mlp: 384
-        n_ctx: 1024
+        n_ctx: 384
 
     sequence_adapter: "identity"
     sequence_adapter_config:
-        output_dim: 96
+        output_dim: 192
     
     head_type: "ctc"
     head_config:
-        d_model: 96
+        d_model: 192
     
     # global config
-    d_model: 96
+    d_model: 192
     d_vocab: 62
     loss_type: "ctc"
 
