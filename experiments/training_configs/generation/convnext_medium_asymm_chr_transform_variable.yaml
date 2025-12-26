@@ -1,4 +1,4 @@
-experiment_name: "convnext_medium_generation_variable"
+experiment_name: "convnext_asymm_medium_ctr_generation_variable"
 
 seed: 42
 
