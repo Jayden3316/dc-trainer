@@ -2,38 +2,12 @@
 
 Tracks all experiments performed with paths to their configs, wandb logs, kaggle notebook version number for runs and results.
 
-The motivation behind the set of experiments is to try minimize the number of factors that affect a result in an individual run. 
-- The choice of the image encoder size is determined through experiments on fixed datasets so that downstream effects like pooling or sequence models being inadequate are not a factor.
-- The codebase currently supports two pipelines for image classification: standard_classification and sequence_classification. See DOCUMENTATION.md for a detailed description. The adapter type is fixed to flatten for standard_classification and vertical_feature (often followed by a projector) for sequence_classification.
-- Training config is largely the same everywhere, and has been reproduced here for reference:
+Please visit: https://www.kaggle.com/code/j11045/captcha for runs, model checkpoints and logs. 
+Checkpoints are available at: `/experiments/<task>/<experiment_name>/checkpoints`
 
-For pre-generated datasets (and this config is set up for classification tasks):
+Training config has been reproduced here for reference. On the fly dataset generation is used for all training runs. Number of parameters is set to be of the order of the parameters of the model, however, in order to maximize the number of experiments that could be run within the compute budget on kaggle, all runs were terminated once target metric (validation accuracy for classification and exact match for generation) seemed to have reached a plateau. On average, classification tasks took 30 minutes on P100 and generation tasks took 1 hour on P100. All experiments cumulatively have used 19 hours of compute.
 
-```yaml
-training_config:
-  batch_size: 32
-  epochs: 50
-  learning_rate: 0.0001
-  optimizer_type: "adamw"
-  weight_decay: 0.01
-  grad_clip_norm: 1.0
-  accumulate_grad_batches: 1
-  
-  checkpoint_dir: "experiments/<task>/<experiment_name>/checkpoints" # updated as needed
-  save_every_n_epochs: 1
-  monitor_metric: "val_acc"
-  wandb_project: "captcha-ocr"
-  log_every_n_steps: 10
-  
-  device: "cuda"
-  num_workers: 4
-  mixed_precision: false
-  shuffle_train: true
-
-  metrics: ['accuracy', 'f1', 'precision', 'recall']
-```
-
-For on-the-fly generated datasets (and this config is set up for generation tasks):
+Hyperparameter sweep was not done for any experiment. The hyperparameters below were shared for all experiments.
 
 ```yaml
 training_config:
@@ -46,9 +20,9 @@ training_config:
   # so the assumption is that the problem is model constrained.
 
   use_onthefly_generation: True
-  save_every_steps: 2048
-  val_check_interval_steps: 2048
-  val_steps: 64
+  save_every_steps: 512
+  val_check_interval_steps: 512
+  val_steps: 128
 
   learning_rate: 0.0001
   optimizer_type: "adamw"
@@ -60,44 +34,54 @@ training_config:
 
 
   save_every_n_epochs: 1
-  monitor_metric: "val_exact_match"
+  monitor_metric: "exact_match" # for generation; 'val_acc' for classification
 
   wandb_project: "captcha-ocr"
-  # wandb_name: "<experiment_name>" Takes experiment from config file if not specified
+  # wandb_name: "<experiment_name>" 
   log_every_n_steps: 10
   
   device: "cuda"
-  num_workers: 4
+  num_workers: 4 # works well on kaggle. On colab, change as needed. 
+  # On testing, colab seemed to be cpu bottlenecked
+  # used for generating on the fly dataset
+
   mixed_precision: false
   shuffle_train: true
 
   metrics: ['character_accuracy', 'word_correct', 'edit_distance']
 ```
 ## Datasets
-Multiple datasets of various sizes could be used. 
 
 The config for noisy dataset generation is provided here for reference:
-noisy_dataset_train:
+
+`ctr_p` (for resnets) | `noisy` (for convnext) | `chr_transform` (for classification tasks):
 
 ```yaml
 dataset_config:
     width: 192
     height: 64
-    width_divisor: 16
+    width_divisor: 32
     width_bias: 0
     resize_mode: "variable"
     image_ext: "png"
 
-    fonts_root: "./train_font_library" 
+    train_font_root: "./train_font_library" # contains 20 fonts
+    val_font_root: "./val_font_library" # contains 5 held out fonts not in training set
+    
     fonts: []
-    max_fonts_per_family: 1 
+    max_fonts_per_family: 1 # some fonts have variants, but we use only one variant per font
     font_sizes: [42]
 
-    random_capitalize: True
+    #word_path: "experiments/diverse_words.tsv" # uncomment for classification tasks
+
+    # diverse_words.tsv: 100 alphanumeric words of length 5
+    # diverse_words_variable.tsv: 100 alphanumeric words of variable length between 4 and 10. Each length appears at least 10 times
+
+    random_capitalize: False # since alphanumeric characters already contain mixed capitalization
     add_noise_dots: True
     add_noise_curve: True
 
-    noise_bg_density: 5000
+    noise_bg_density: 0
 
     extra_spacing: -5
     spacing_jitter: 5
@@ -119,34 +103,15 @@ dataset_config:
     max_word_len: 10
 ```
 
-These are some exemplar configurations to easily refer to when needed during discussion of experiments below.
+- For `clean`: `add_noise_dots: False`, `add_noise_curve: False`, other parameters are set to 0
+- For `noise_dots`: `add_noise_dots: True`, `add_noise_curve: True`, other parameters are set to 0
 
-| Dataset name | Dataset Config | words list | font_root | random_capitalize | remarks |
-| --- | --- | --- | --- | --- | --- |
-| **fixed_clean_dataset_train_classification** | experiments/dataset_configs/clean_dataset_train.yaml | experiments/diverse_words.tsv | train_font_library | False |clean dataset, 5 letter alphanumeric words, no noise, no distortions, black text on white background |
-| **fixed_clean_dataset_val_classification** | experiments/dataset_configs/clean_dataset_val.yaml | experiments/diverse_words.tsv | val_font_library | False | clean dataset, 5 letter alphanumeric words, no noise, no distortions, black text on white background |
-| **fixed_noisy_dataset_train_classification** | experiments/dataset_configs/noisy_dataset_train.yaml | experiments/diverse_words.tsv | train_font_library | False | noisy dataset, 5 letter alphanumeric words, noise, distortions, randomly colored text on a light background |
-| **fixed_noisy_dataset_val_classification** | experiments/dataset_configs/noisy_dataset_val.yaml | experiments/diverse_words.tsv | val_font_library | False | noisy dataset, 5 letter alphanumeric words, noise, distortions, randomly colored text on a light background |
+The height of all images is resized to 64x. There are two configurations for width handling - either resizing to a fixed width or resizing to the nearest width_divisor multiple.
+- `fixed`: `resize_mode: "fixed"`
+- `variable`: `resize_mode: "variable"`, `width_divisor: 32`
 
-TODO: list other relevant datasets here
-
-These datasets enable comparison of the following:
-- Effect of dataset size on training (for fixed and variable datasets) and (noisy and clean datasets)
-- Effect of fixed or variable datasets
-- Effect of noisy or clean datasets
 
 ## Classification
-
-### Determining the size of model
-
-All of the following experiments are performed on `fixed_noisy_train` with `standard_classification` pipeline.
-
-| Experiment Name | Config Path | Wandb Link| Kaggle Notebook Link | Kaggle Notebook Version | Results |
-| --- | --- | --- | --- | --- | --- |
-| resnet_small | experiments/training_configs/classification/resnet_small.yaml | | | | |
-| resnet_base | experiments/training_configs/classification/resnet_base.yaml | | | | |
-| resnet_large | experiments/training_configs/classification/resnet_large.yaml | | | | |
-| --- | --- | --- | --- | --- | --- |
 
 ### Comparing architectures
 
@@ -160,27 +125,29 @@ Since captchas are of variable width, handling them seem to have a few variation
 - Resizing to a fixed width
 - Pooling the feature map along the spatial dimensions
 - Using a sequence model to process the feature map
+- Use models trained on the generative task, then choose the label with least edit distance (and for better performance, use least edit distance on lowercase of predicted and true labels)
 
 Pooling would result in a loss of spatial information, but this could be handled if there are a sufficient number of channels.
 
-Resizing to a fixed width would harm longer captchas and compressing these might not be optimal. Finally, some sort of tiling/ sliding window approach might be possible for generation tasks, but implementing them for classification without pooling seems more complex.
+Resizing to a fixed width would harm longer captchas and compressing these might not be optimal, however, on experimentations, there did not seem to be a significant difference in performance upto captchas with 10 characters.
 
-There are previous work that use a sequence model after an encoder like CRNN. Here, the feature maps from the ImageEncoder are reshaped and passed as visual tokens. The sequence model then processes these visual tokens to generate the final output.
-
-The effective stride along the width is determined by the embedding dimension since `VerticalFeatureAdapter` does the following transform: `[B, C, H, W] -> [B, W//f, C * H * f], where f = (output_dim // C * H)`. 
+There are previous work that use a sequence model after an encoder like CRNN. Here, the feature maps from the ImageEncoder are reshaped and passed as visual tokens. The sequence model then processes these visual tokens to generate the final output. Discussion on such models is deferred to the `generation` section.
 
 By default, both image encoders use the following pattern:
 
-- Stem: `[B, C, H, W] -> [B, C', H/4, W/4]`
-- Block1: `[B, C', H/4, W/4] -> [B, C', H/4, W/4]`
-- Downsample1: `[B, C', H/4, W/4] -> [B, C'', H/8, W/8]`
-- Block2: `[B, C'', H/8, W/8] -> [B, C'', H/8, W/8]`
-- Downsample2: `[B, C'', H/8, W/8] -> [B, C''', H/16, W/16]`
-- Block3: `[B, C''', H/16, W/16] -> [B, C''', H/16, W/16]`
-- Downsample3: `[B, C''', H/16, W/16] -> [B, C'''' H/32, W/32]`
-- Block4: `[B, C'''' H/32, W/32] -> [B, C'''' H/32, W/32]`
 
-This means that each vision token covers a stride of at least 32px along the width and the entire height. Since the width of the characters are also approximately 20-40px, each token could cover multiple characters, especially if 'narrow' letters appear together. 
+| Block | `Input_dims` -> `Output_dims` | Description |
+| --- | --- | --- |
+| Stem:          |    `[B, C, H, W] -> [B, C', H/4, W/4]`               |   4x downsample               |
+| Block1:        |    `[B, C', H/4, W/4] -> [B, C', H/4, W/4]`          |   consists of k blocks        |
+| Downsample1:   |    `[B, C', H/4, W/4] -> [B, C'', H/8, W/8]`         |   2x downsample               |
+| Block2:        |    `[B, C'', H/8, W/8] -> [B, C'', H/8, W/8]`        |   consists of k blocks        |
+| Downsample2:   |    `[B, C'', H/8, W/8] -> [B, C''', H/16, W/16]`     |   2x downsample               |
+| Block3:        |    `[B, C''', H/16, W/16] -> [B, C''', H/16, W/16]`  |   consists of 3k blocks       |
+| Downsample3:   |    `[B, C''', H/16, W/16] -> [B, C'''' H/32, W/32]`  |   2x downsample               |
+| Block4:        |    `[B, C'''' H/32, W/32] -> [B, C'''' H/32, W/32]`  |   consists of k blocks        |
+
+This means that each vision token covers a stride of at least 32px along the width and the entire height. Since the width of the characters are also approximately 20-40px, each token could cover multiple characters, especially if 'narrow' letters appear together. For the classification task however, this did not significantly affect performance. Further discussion on this is deferred to the `generation` section.
 
 We provide the model configs here for reference:
 resnet-base:
@@ -216,71 +183,24 @@ model_config:
     loss_type: "cross_entropy"
 
 ```
-resnet-base-rnn: 
+`resnet-medium` uses the same config as `resnet-base` but sets dims as `[16, 32, 48, 96]`.
 
-```yaml
-model_config: 
-    pipeline_type: "sequence_classification"
-    task_type: "classification"
-    encoder_type: "resnet"
-    encoder_config: 
-        dims: [16, 32, 64, 128]
-        stem_kernel_size: 4
-        stem_stride: 4
-        stem_in_channels: 3
-        stage_block_counts: [2, 2, 6, 2]
-        downsample_strides: [(2, 2), (2, 1), (2, 1)]
-        downsample_kernels: [(2, 2), (2, 3), (2, 3)]
-        downsample_padding: [(0, 0), (0, 1), (0, 1)]
-        # ([B, C, H, W] -> [B, C', H/4, W/4]) -> ([B, C'', H/8, W/8] -> [B, C''', H/16, W/8] -> [B, C'''', H/32, W/8]) 
-        # Effective stride along the horizontal axis is 8 
+convnext-base: 
 
-    adapter_type: "vertical_feature"
-    adapter_config:
-        output_dim: 256 # f * C * H = f * 128 * 2; f = 1
-        # using f = 1 sets the sequence length to be W/8, which is between 20-40 tokens for most captchas
-    sequence_model_type: 'rnn'
-    sequence_model_config:
-        hidden_size: 256
-        num_layers: 2
-        dropout: 0.1
-        bidirectional: False
-
-    sequence_adapter_type: "sequence_pool"
-    sequence_adapter_config:
-        pool_type: "last" # Use last hidden state for RNN
-
-    head_type: "classification"
-    head_config:
-        num_classes: 100
-        d_model: 256
-        head_hidden_dim: 192
-        pooling_type: "mean" # default arg, not used here.
-    
-    # global config
-    d_model: 256
-    d_vocab: 100
-    loss_type: "cross_entropy"
-```
-finally, another alternative is to have (2,1) kernels instead of (2,3) kernels, with stride as (2, 1) and no padding. The tradeoff is that there would be no context from the adjecent patches during downsampling, but the performance difference is not entirely obvious to me.
-
-resnet-base-rnn-narrow-asymm:
-
-The config is provided here for reference:
 ```yaml
 model_config:
     pipeline_type: "standard_classification"
     task_type: "classification"
-    encoder_type: "resnet"
+    encoder_type: "convnext"
     encoder_config:
         dims: [16, 32, 64, 128]
         stem_kernel_size: 4
         stem_stride: 4
         stem_in_channels: 3
-        stage_block_counts: [2, 2, 6, 2]
-        downsample_strides: [(2, 2), (2, 1), (2, 1)]
-        downsample_kernels: [(2, 2), (2, 1), (2, 1)]
-        downsample_padding: [(0, 0), (0, 0), (0, 0)]
+        stage_block_counts: [3, 3, 9, 3]
+        downsample_strides: [[2, 2], [2, 2], [2, 2]]
+        downsample_kernels: [[2, 2], [2, 2], [2, 2]]
+        downsample_padding: [[0, 0], [0, 0], [0, 0]]
 
         # the following are defaults, but reproduced here for clarity:
         convnext_kernel_size: 7
@@ -289,7 +209,13 @@ model_config:
 
     adapter_type: "flatten"
     adapter_config:
-        output_dim: 576 # 128 * 2 * 6
+        output_dim: 1536 # 128 * 2 * 6
+
+    projector_type: 'linear'
+    projector_config:
+        output_dim: 576
+    sequence_model_type: null
+
     head_type: "classification"
     head_config:
         num_classes: 100
@@ -298,8 +224,12 @@ model_config:
         pooling_type: "mean" # default arg, not used here.
     
     # global config
+    d_model: 576
+    d_vocab: 100
+    loss_type: "cross_entropy"
 
 ```
+
 | Experiment Name | Config Path | Wandb Link| Kaggle Notebook Link | Kaggle Notebook Version | Results |
 | --- | --- | --- | --- | --- | --- |
 | resnet_base | experiments/training_configs/classification/resnet_base.yaml | | | | |
@@ -349,13 +279,25 @@ model_config:
 
 The motivation is to see the advantage of the larger kernel size, as well as the inverted bottleneck layer. A more detailed discussion is provided later on.
 
-| Experiment Name | Config Path | Wandb Link| Kaggle Notebook Link | Kaggle Notebook Version | Results |
-| --- | --- | --- | --- | --- | --- |
-| convnext_base | experiments/training_configs/classification/convnext_base.yaml | | | | |
-| convnext_large | experiments/training_configs/classification/convnext_large.yaml | | | | |
+## Results
 
+| Name | val_acc | val_f1 | val_loss | step | batch_size | dims | encoder |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| resnet_base_classification_clean_fixed |  0.962  | 0.9565 | 0.1053 | 10000 | 32 | [8,16,24,48] | resnet |
+| resnet_base_classification_clean_variable |  0.956 |  0.9499 | 0.1200 | 10000 | 32 | [8,16,24,48] | resnet |
+| convnext_base_classification_variable |  0.956 |  0.9485 | 0.1638 | 28680 | 32 | [16,32,64,128] | convnext |
+| convnext_base_classification |  0.931  |  0.9226 |  0.2707 | 10000 | 32 | [16,32,64,128] | convnext |
+| convnext_base_noise_dots_classification* | 0.852  |  0.8482 | 0.5025 | **6830** | 32 | [16,32,64,128] | convnext |
+| convnext_base_noisy_classification* |  0.77 |  0.7607 | 0.7930 | 10000 | 32 | [16,32,64,128] | convnext |
+| convnext_base_chr_transforms_classification* | 0.70  |  0.7003 | 1.0362 | 10000 | 32 | [16,32,64,128] | convnext |
 
+- (*) These runs were terminated early. Plots show that they would have likely converged to a better accuracy.
+
+![classification scores](image.png)
 ## Generation
+
+The effective stride along the width is determined by the embedding dimension since `VerticalFeatureAdapter` does the following transform: `[B, C, H, W] -> [B, W//f, C * H * f], where f = (output_dim // C * H)`. 
+
 
 ### The standard generation task:
 
