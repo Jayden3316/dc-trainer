@@ -66,11 +66,11 @@ model_config:
     projector_type: 'identity'
     sequence_model_type: 'transformer_encoder'
     sequence_model_config:
-        n_layers: 4
+        n_layers: 2
         d_model: 96
         n_head: 4
         d_mlp: 384
-        n_ctx: 48
+        n_ctx: 64
 
     sequence_adapter: "identity"
     sequence_adapter_config:
