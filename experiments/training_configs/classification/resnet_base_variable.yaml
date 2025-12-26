@@ -17,7 +17,7 @@ dataset_config:
     max_fonts_per_family: 1 
     font_sizes: [42]
 
-    word_path: "experiments/diverse_words.tsv" 
+    word_path: "experiments/diverse_words_variable.tsv" 
 
     random_capitalize: False
     add_noise_dots: False
