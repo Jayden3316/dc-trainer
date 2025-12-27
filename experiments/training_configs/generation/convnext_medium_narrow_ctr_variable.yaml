@@ -63,7 +63,7 @@ model_config:
 
     adapter_type: "vertical_feature"
     adapter_config:
-        output_dim: 1024 # 512 * 2
+        output_dim: 384 # 512 * 2
 
     projector_type: 'mlp'
     projector_config:
