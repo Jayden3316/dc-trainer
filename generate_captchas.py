@@ -57,6 +57,7 @@ class CaptchaGenerator:
             character_warp_dy=tuple(config.character_warp_dy) if config.character_warp_dy else (0.2, 0.3),
             word_space_probability=config.word_space_probability,
             word_offset_dx=config.word_offset_dx,
+            use_flip_set=config.use_flip_set,
         )
         self.records: list[dict] = []
 

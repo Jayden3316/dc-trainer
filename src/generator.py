@@ -53,6 +53,7 @@ class ConfigurableImageCaptcha:
         character_warp_dy: tuple[float, float] = (0.2, 0.3),
         word_space_probability: float = 0.5,
         word_offset_dx: float = 0.25,
+        use_flip_set: bool = False,
     ):
         self._width = width
         self._height = height
@@ -75,6 +76,9 @@ class ConfigurableImageCaptcha:
         self.character_warp_dy = character_warp_dy
         self.word_space_probability = word_space_probability
         self.word_offset_dx = word_offset_dx
+        
+        # New Feature Flag
+        self.use_flip_set = use_flip_set
         
         self.lookup_table: list[int] = [int(i * 1.97) for i in range(256)]
 
@@ -237,11 +241,30 @@ class ConfigurableImageCaptcha:
         return image
 
     def generate_image(self, chars: str, bg_color=None, fg_color=None):
-        background = bg_color if bg_color else random_color(238, 255)
-        random_fg_color = random_color(10, 200, secrets.randbelow(36) + 220)
-        color = fg_color if fg_color else random_fg_color
+        if self.use_flip_set:
+            # FLIP SET LOGIC:
+            # Randomly choose between Green (normal) and Red (flipped)
+            is_flipped = secrets.choice([True, False])
+            
+            if is_flipped:
+                 # Red Background -> Flipped Text
+                 background = (255, 0, 0)
+                 render_chars = chars[::-1]
+            else:
+                 # Green Background -> Normal Text
+                 background = (0, 255, 0)
+                 render_chars = chars
+                 
+            # Text is always Black
+            color = (0, 0, 0)
+        else:
+            # STANDARD LOGIC
+            background = bg_color if bg_color else random_color(238, 255)
+            random_fg_color = random_color(10, 200, secrets.randbelow(36) + 220)
+            color = fg_color if fg_color else random_fg_color
+            render_chars = chars
 
-        im = self.create_captcha_image(chars, color, background)
+        im = self.create_captcha_image(render_chars, color, background)
 
         if self.add_noise_dots:
             self.create_noise_dots(im, color)

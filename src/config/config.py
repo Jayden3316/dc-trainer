@@ -143,6 +143,9 @@ class DatasetConfig:
     min_word_len: int = 4
     max_word_len: int = 8
     
+    # Flip Set Configuration
+    use_flip_set: bool = False
+    
     def to_dict(self) -> Dict[str, Any]:
         return {
             'width': self.width,

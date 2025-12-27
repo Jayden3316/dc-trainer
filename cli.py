@@ -45,6 +45,7 @@ def main():
     gen_parser.add_argument("--font-root", type=str, default=None, help="Root of font directory")
     gen_parser.add_argument("--out-dir", type=str, default="dataset", help="Output directory")
     gen_parser.add_argument("--dataset-count", type=int, default=None, help="Target number of captchas to generate")
+    gen_parser.add_argument("--use-flip-set", action="store_true", help="Enable flip set generation (Green=Normal, Red=Flipped)")
     
     # --- TRAIN COMMAND ---
     train_parser = subparsers.add_parser("train", help="Train model")
@@ -144,6 +145,10 @@ def main():
             
             # Update config with runtime paths
             dataset_config.fonts = selected_fonts
+
+        if args.use_flip_set:
+            dataset_config.use_flip_set = True
+            print("Enabled Flip Set generation mode.")
 
         if not dataset_config.fonts:
              print("Error: No fonts selected.")
