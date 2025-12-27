@@ -196,6 +196,8 @@ class ConvNextEncoderConfig:
     downsample_padding: Optional[List[tuple[int, int]]] = None
     
     # ConvNextBlock configuration
+    # TODO: add config for these in encoders.py
+    # Right now these configurations do nothing and are hard-coded in encoders.py
     convnext_kernel_size: int = 7
     convnext_drop_path_rate: float = 0.0
     convnext_layer_scale_init_value: float = 1e-6
@@ -249,8 +251,57 @@ class ResNetEncoderConfig:
         if self.downsample_padding is not None and len(self.downsample_padding) != 3:
              raise ValueError(f"downsample_padding length ({len(self.downsample_padding)}) must be 3")
 
+@dataclass
+class ConvNextSeparatedEncoderConfig:
+    """
+    Configuration for ConvNextSeparatedEncoder.
+    """
+    # Stage dimensions
+    dims: List[int] = field(default_factory=lambda: [64, 128, 256, 512])
+    
+    # Stage block counts (per stage, in order)
+    stage_block_counts: List[int] = field(default_factory=lambda: [2, 2, 6, 2])
+    
+    # Stem configuration
+    stem_kernel_size: tuple[int, int] | int = 4
+    stem_stride: tuple[int, int] | int = 4
+    stem_padding: tuple[int, int] | int = 0
+    stem_in_channels: int = 3
+    
+    # Downsample configuration
+    # List of strides for the 3 downsample blocks (between stage 1-2, 2-3, 3-4)
+    downsample_strides: List[tuple[int, int]] = field(default_factory=lambda: [(2, 2), (2, 2), (2, 2)])
+    
+    # List of kernels for the 3 downsample blocks
+    # If not specified, defaults to matching the stride (handled in Encoder class)
+    downsample_kernels: Optional[List[tuple[int, int]]] = None
+
+    downsample_padding: Optional[List[tuple[int, int]]] = None
+    
+    # ConvNextBlock configuration
+    #TODO: add config for these in encoders.py
+    # Right now these configurations do nothing and are hard-coded in encoders.py
+    convnext_kernel_size: int = 7
+    convnext_drop_path_rate: float = 0.0
+    convnext_layer_scale_init_value: float = 1e-6
+    convnext_activation: ActivationType = ActivationType.GELU
+    convnext_expansion_ratio: int = 1  # MLP expansion in ConvNextBlock
+    
+    # Normalization
+    norm_eps: float = 1e-6
+    
+    def __post_init__(self):
+        if len(self.stage_block_counts) != len(self.dims):
+            raise ValueError(f"stage_block_counts length ({len(self.stage_block_counts)}) must match dims length ({len(self.dims)})")
+        if len(self.downsample_strides) != 3:
+             raise ValueError(f"downsample_strides length ({len(self.downsample_strides)}) must be 3")
+        if self.downsample_kernels is not None and len(self.downsample_kernels) != 3:
+             raise ValueError(f"downsample_kernels length ({len(self.downsample_kernels)}) must be 3")
+        if self.downsample_padding is not None and len(self.downsample_padding) != 3:
+             raise ValueError(f"downsample_padding length ({len(self.downsample_padding)}) must be 3")
+
 # Union type for encoder configs
-EncoderConfig = Union[ConvNextEncoderConfig, ResNetEncoderConfig]
+EncoderConfig = Union[ConvNextEncoderConfig, ResNetEncoderConfig, ConvNextSeparatedEncoderConfig]
 
 
 # ============================================================================
@@ -536,6 +587,8 @@ class ModelConfig:
                 self.encoder_config = ConvNextEncoderConfig()
             elif self.encoder_type == 'resnet':
                 self.encoder_config = ResNetEncoderConfig()
+            elif self.encoder_type == 'convnext_separated':
+                self.encoder_config = ConvNextSeparatedEncoderConfig()
             # If a strict registry check is desired, we can add it, 
             # but usually encoders are registered externally.
         
